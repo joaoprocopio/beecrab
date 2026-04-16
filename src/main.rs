@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut stats = BTreeMap::<Station, Status>::new();
 
     let reader = current_dir()
-        .and_then(|dir| Ok(dir.join("data/measurements.txt")))
+        .and_then(|dir| Ok(dir.join("measurements.txt")))
         .and_then(|dir| File::open(dir))
         .and_then(|file| Ok(BufReader::new(file)))?;
 
