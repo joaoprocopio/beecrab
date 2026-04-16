@@ -77,13 +77,31 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let stat = stats.entry(station).or_insert(Status::default());
 
-        stat.sum += temperature;
-        stat.count += 1;
         stat.max = temperature.max(stat.max);
         stat.min = temperature.min(stat.min);
+        stat.sum += temperature;
+        stat.count += 1;
     }
 
-    dbg!(stats);
+    let mut stats = stats.into_iter().peekable();
+
+    print!("{{");
+
+    while let Some((station, status)) = stats.next() {
+        print!(
+            "{}={:.1}/{:.1}/{:.1}",
+            station,
+            status.min,
+            status.sum / status.count as f64,
+            status.max
+        );
+
+        if let Some(_) = stats.peek() {
+            print!(", ");
+        }
+    }
+
+    print!("}}");
 
     Ok(())
 }
