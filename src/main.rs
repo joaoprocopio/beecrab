@@ -44,8 +44,8 @@ type Temperature = f64;
 #[derive(Debug)]
 struct Status {
     min: Temperature,
-    mean: Temperature,
     max: Temperature,
+    sum: Temperature,
     count: usize,
 }
 
@@ -53,8 +53,8 @@ impl Default for Status {
     fn default() -> Self {
         Self {
             min: Temperature::MAX,
-            mean: 0.,
             max: Temperature::MIN,
+            sum: 0.,
             count: 0,
         }
     }
@@ -75,16 +75,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         let station: Station = station.into();
         let temperature: Temperature = temperature.parse()?;
 
-        dbg!(&temperature);
-
         let stat = stats.entry(station).or_insert(Status::default());
 
+        stat.sum += temperature;
+        stat.count += 1;
         stat.max = temperature.max(stat.max);
         stat.min = temperature.min(stat.min);
-        stat.count += 1;
-
-        dbg!(&stat);
     }
+
+    dbg!(stats);
 
     Ok(())
 }
