@@ -13,8 +13,10 @@ tools:
 
 record:
 
+<!-- https://rustc-dev-guide.rust-lang.org/profiling/with-perf.html -->
+
 ```sh
-perf record --call-graph dwarf ./target/release/rowgobrrr
+perf record -F99 --call-graph dwarf ./target/release/rowgobrrr
 ```
 
 visualize:
