@@ -2,6 +2,15 @@
 
 1 billion row challenge in rust.
 
+## generating measurements
+
+```sh
+cd 1brc
+./mvnw clean verify
+./create_measurements.sh 1000000000
+./calculate_average_baseline.sh
+```
+
 ## profilling
 
 tools:
