@@ -4,6 +4,23 @@
 
 ## profilling
 
+tools:
+
+- perf linux
+- callgrind
+- valgrind
+- cachegrind
+
+record:
+
 ```sh
 perf record --call-graph dwarf ./target/release/rowgobrrr
 ```
+
+visualize:
+
+```sh
+perf script > perf.txt
+```
+
+paste on: https://profiler.firefox.com/
