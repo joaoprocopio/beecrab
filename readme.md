@@ -13,6 +13,7 @@ tools:
 
 record:
 
+<!-- https://nnethercote.github.io/perf-book/profiling.html -->
 <!-- https://rustc-dev-guide.rust-lang.org/profiling/with-perf.html -->
 
 ```sh
