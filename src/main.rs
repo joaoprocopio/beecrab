@@ -60,13 +60,14 @@ impl Default for Status {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     let mut stats = BTreeMap::<Station, Status>::new();
 
     let reader = current_dir()
         .and_then(|dir| Ok(dir.join("measurements.txt")))
         .and_then(|dir| File::open(dir))
-        .and_then(|file| Ok(BufReader::new(file)))?;
+        .and_then(|file| Ok(BufReader::new(file)))
+        .unwrap();
 
     let mut lines = reader.lines();
 
@@ -74,7 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (station, temperature) = line.split_once(";").unwrap();
 
         let station: Station = station.into();
-        let temperature: Temperature = temperature.parse()?;
+        let temperature: Temperature = temperature.parse().unwrap();
 
         let stat = stats.entry(station).or_default();
 
@@ -103,6 +104,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     print!("}}");
-
-    Ok(())
 }
