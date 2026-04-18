@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::File;
 use std::io;
+use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::ptr::null_mut as null_mut_ptr;
 use std::slice;
@@ -64,8 +65,10 @@ const NEW_LINE: u8 = b"\n"[0];
 fn main() {
     let mut statuses = HashMap::<&str, Status>::new();
 
-    let path = current_dir().unwrap().join("measurements.txt");
-    let file = File::open(path).unwrap();
+    let file = current_dir()
+        .and_then(|path| path.join("measurements-10k.txt").canonicalize())
+        .and_then(|path| File::open(path))
+        .unwrap();
 
     mmap(&file)
         .split(|&byte| byte == NEW_LINE)
@@ -88,25 +91,30 @@ fn main() {
 
     let mut sorted = sorted.into_iter().peekable();
 
-    print!("{{");
+    let stdout = io::stdout();
+    let mut writer = io::BufWriter::new(stdout.lock());
+
+    write!(&mut writer, "{{").unwrap();
 
     while let Some(station) = sorted.next() {
         let status = statuses.get(station).unwrap();
 
-        print!(
+        write!(
+            &mut writer,
             "{}={:.1}/{:.1}/{:.1}",
             station,
             status.min,
             status.sum / status.count as f64,
             status.max
-        );
+        )
+        .unwrap();
 
         if let Some(_) = sorted.peek() {
-            print!(", ");
+            write!(&mut writer, ", ").unwrap();
         }
     }
 
-    print!("}}");
+    write!(&mut writer, "}}").unwrap();
 }
 
 fn mmap(file: &File) -> &[u8] {
