@@ -64,37 +64,26 @@ const NEW_LINE: u8 = b"\n"[0];
 fn main() {
     let mut statuses = HashMap::<&str, Status>::new();
 
-    let path = current_dir().unwrap().join("measurements.txt");
+    let path = current_dir().unwrap().join("measurements-10k.txt");
     let file = File::open(path).unwrap();
-    let bytes = mmap(&file);
 
-    let mut index = 0;
-    let mut prev = 0;
+    mmap(&file)
+        .split(|&byte| byte == NEW_LINE)
+        .filter(|&byte| !byte.is_empty())
+        .for_each(|line| {
+            let line = unsafe { str::from_utf8_unchecked(line) };
+            let (station, temperature) = line.split_once(";").unwrap();
+            let temperature: f64 = temperature.parse().unwrap();
 
-    for byte in bytes {
-        if byte != &NEW_LINE {
-            index += 1;
-            continue;
-        }
+            let status = statuses.entry(station).or_default();
 
-        let line = unsafe { str::from_utf8_unchecked(&bytes[prev..index]) };
-
-        let (station, temperature) = line.split_once(";").unwrap();
-        let temperature: f64 = temperature.parse().unwrap();
-
-        let status = statuses.entry(station).or_default();
-
-        status.max = temperature.max(status.max);
-        status.min = temperature.min(status.min);
-        status.sum += temperature;
-        status.count += 1;
-
-        prev = index + 1;
-        index += 1;
-    }
+            status.max = temperature.max(status.max);
+            status.min = temperature.min(status.min);
+            status.sum += temperature;
+            status.count += 1;
+        });
 
     let mut sorted = statuses.keys().collect::<Vec<_>>();
-
     sorted.sort_unstable();
 
     let mut sorted = sorted.into_iter().peekable();
