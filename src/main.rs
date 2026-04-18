@@ -1,10 +1,13 @@
 #![deny(clippy::all)]
 
+use libc::{self, PROT_READ};
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
+use std::io::{self, BufRead};
+use std::os::fd::AsRawFd;
+use std::ptr::null_mut as null_mut_ptr;
+use std::slice;
 
 /// each line inside the measurements.txt file is in the following format `<string: station_name>;<f64: measurement>`
 ///
@@ -60,53 +63,86 @@ impl Default for Status {
 }
 
 fn main() {
-    let mut statuses = HashMap::<Station, Status>::new();
+    // let mut statuses = HashMap::<Station, Status>::new();
 
-    let reader = current_dir()
-        .and_then(|dir| Ok(dir.join("measurements.txt")))
-        .and_then(|dir| File::open(dir))
-        .and_then(|file| Ok(BufReader::new(file)))
-        .unwrap();
+    let path = current_dir().unwrap().join("measurements-10k.txt");
+    let file = File::open(path).unwrap();
+    let map = mmap(&file);
 
-    let mut lines = reader.lines();
+    let res = unsafe { str::from_utf8_unchecked(map) };
 
-    while let Some(Ok(line)) = lines.next() {
-        let (station, temperature) = line.split_once(";").unwrap();
+    println!("{}", res);
 
-        let station: Station = station.into();
-        let temperature: Temperature = temperature.parse().unwrap();
+    // let mut lines = reader.lines();
 
-        let status = statuses.entry(station).or_default();
+    // while let Some(Ok(line)) = lines.next() {
+    //     let (station, temperature) = line.split_once(";").unwrap();
 
-        status.max = temperature.max(status.max);
-        status.min = temperature.min(status.min);
-        status.sum += temperature;
-        status.count += 1;
-    }
+    //     let station: Station = station.into();
+    //     let temperature: Temperature = temperature.parse().unwrap();
 
-    let mut sorted = statuses.keys().collect::<Vec<_>>();
+    //     let status = statuses.entry(station).or_default();
 
-    sorted.sort_unstable();
+    //     status.max = temperature.max(status.max);
+    //     status.min = temperature.min(status.min);
+    //     status.sum += temperature;
+    //     status.count += 1;
+    // }
 
-    let mut sorted = sorted.into_iter().peekable();
+    // let mut sorted = statuses.keys().collect::<Vec<_>>();
 
-    print!("{{");
+    // sorted.sort_unstable();
 
-    while let Some(station) = sorted.next() {
-        let status = statuses.get(station).unwrap();
+    // let mut sorted = sorted.into_iter().peekable();
 
-        print!(
-            "{}={:.1}/{:.1}/{:.1}",
-            station,
-            status.min,
-            status.sum / status.count as f64,
-            status.max
+    // print!("{{");
+
+    // while let Some(station) = sorted.next() {
+    //     let status = statuses.get(station).unwrap();
+
+    //     print!(
+    //         "{}={:.1}/{:.1}/{:.1}",
+    //         station,
+    //         status.min,
+    //         status.sum / status.count as f64,
+    //         status.max
+    //     );
+
+    //     if let Some(_) = sorted.peek() {
+    //         print!(", ");
+    //     }
+    // }
+
+    // print!("}}");
+}
+
+fn mmap(file: &File) -> &[u8] {
+    let len = file.metadata().unwrap().len() as libc::size_t;
+
+    unsafe {
+        let ptr = libc::mmap(
+            null_mut_ptr(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
         );
 
-        if let Some(_) = sorted.peek() {
-            print!(", ");
+        if ptr == libc::MAP_FAILED {
+            panic!("{:?}", io::Error::last_os_error());
         }
-    }
 
-    print!("}}");
+        if libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) != 0 {
+            panic!("{:?}", io::Error::last_os_error());
+        }
+
+        if libc::madvise(ptr, len, libc::MADV_HUGEPAGE) != 0 {
+            panic!("{:?}", io::Error::last_os_error());
+        }
+
+        slice::from_raw_parts(ptr as *const u8, len as usize)
+    }
 }
+
+// TODO: maybe munmap? it's needed if we're just shutting down the program?

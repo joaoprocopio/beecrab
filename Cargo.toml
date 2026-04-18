@@ -9,3 +9,6 @@ debug = "full" # TODO: remove this when making production release; info useful o
 strip = "none"
 lto = "fat"
 panic = "abort"
+
+[dependencies]
+libc = "0.2.185"
