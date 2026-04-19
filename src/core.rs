@@ -32,11 +32,17 @@ impl Metrics {
     }
 }
 
-pub fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
-    // dbg!(-0);
-    // dbg!(&slice);
+pub fn parse_temperature<'a>(buffer: &'a [u8]) -> Temperature {
+    let len = buffer.len();
+    let is_negative = buffer[0] == b'-';
+    let sign_multiplier = Temperature::from(!is_negative) * 2 - 1; // if negative -> -1; if positive -> 1
+    let start_pos = usize::from(is_negative);
+    let i1 = buffer[start_pos];
 
-    1
+    dbg!(start_pos);
+    dbg!(i1 as char);
+
+    0
 }
 
 #[cfg(test)]
@@ -47,20 +53,20 @@ mod tests {
     fn suite() {
         assert_eq!(parse_temperature(b"0.0"), 0);
 
-        assert_eq!(parse_temperature(b"9.0"), 90);
-        assert_eq!(parse_temperature(b"9.5"), 95);
-        assert_eq!(parse_temperature(b"9.9"), 99);
-
         assert_eq!(parse_temperature(b"-9.0"), -90);
         assert_eq!(parse_temperature(b"-9.5"), -95);
         assert_eq!(parse_temperature(b"-9.9"), -99);
 
-        assert_eq!(parse_temperature(b"99.0"), 990);
-        assert_eq!(parse_temperature(b"99.5"), 995);
-        assert_eq!(parse_temperature(b"99.9"), 999);
+        assert_eq!(parse_temperature(b"9.5"), 95);
+        assert_eq!(parse_temperature(b"9.9"), 99);
+        assert_eq!(parse_temperature(b"9.0"), 90);
 
         assert_eq!(parse_temperature(b"-99.0"), -990);
         assert_eq!(parse_temperature(b"-99.5"), -995);
         assert_eq!(parse_temperature(b"-99.9"), -999);
+
+        assert_eq!(parse_temperature(b"99.0"), 990);
+        assert_eq!(parse_temperature(b"99.5"), 995);
+        assert_eq!(parse_temperature(b"99.9"), 999);
     }
 }
