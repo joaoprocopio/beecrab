@@ -1,13 +1,13 @@
-#![feature(portable_simd)]
+// #![feature(portable_simd)]
+#![feature(slice_split_once)]
 
+use std::collections::hash_map::Entry;
 use std::env::{args, current_dir};
 use std::fs::File;
 use std::io;
 use std::io::Write;
-use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x32;
 
-use beecrab::core::{MetricsMap, TemperatureSum};
+use beecrab::core::{Metrics, MetricsMap, Temperature, TemperatureSum};
 use beecrab::mmap::Mmap;
 
 fn main() {
@@ -25,43 +25,31 @@ fn main() {
 }
 
 fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
-    let metrics = MetricsMap::with_capacity(256);
+    let mut metrics = MetricsMap::with_capacity(256);
 
-    let semi = u8x32::splat(b';');
-    let newl = u8x32::splat(b'\n');
-    let chunk = u8x32::from_slice(&buffer[0..32]);
-    let mask = chunk.simd_eq(semi) | chunk.simd_eq(newl);
+    buffer
+        .split(|byte| *byte == b'\n')
+        .filter(|byte| !byte.is_empty())
+        .for_each(|line| {
+            let (station, temperature) = line.split_once(|&byte| byte == b';').unwrap();
+            let temperature = parse_temperature(temperature);
 
-    dbg!(mask);
-    // dbg!(chunk);
-
-    // for byte in buffer.chunks(64) {
-    //     dbg!(unsafe { str::from_utf8_unchecked(byte) });
-    // }
-
-    // slice
-    //     .split(|byte| *byte == NEW_LINE)
-    //     .filter(|byte| !byte.is_empty())
-    //     .for_each(|line| {
-    //         let (station, temperature) = line.split_once(|&byte| byte == SEPARATOR).unwrap();
-    //         let temperature = parse_temperature(temperature);
-
-    //         match metrics.entry(station) {
-    //             Entry::Vacant(none) => {
-    //                 none.insert(Metrics::new(temperature));
-    //             }
-    //             Entry::Occupied(mut some) => {
-    //                 some.get_mut().update(temperature);
-    //             }
-    //         };
-    //     });
+            match metrics.entry(station) {
+                Entry::Vacant(none) => {
+                    none.insert(Metrics::new(temperature));
+                }
+                Entry::Occupied(mut some) => {
+                    some.get_mut().update(temperature);
+                }
+            };
+        });
 
     metrics
 }
 
-// fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
-//     unsafe { str::from_utf8_unchecked(slice) }.parse().unwrap()
-// }
+fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
+    unsafe { str::from_utf8_unchecked(slice) }.parse().unwrap()
+}
 
 fn write_metrics(metrics: MetricsMap) {
     let mut stations = metrics.keys().collect::<Vec<_>>();
