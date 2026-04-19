@@ -15,29 +15,28 @@ type U8AVX = std::simd::Simd<u8, U8AVXLNS>;
 const SEMI: U8AVX = U8AVX::splat(b';');
 const NEWL: U8AVX = U8AVX::splat(b'\n');
 
-pub fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
+pub fn compute_metrics(buffer: &[u8]) -> MetricsMap<'_> {
     let metrics = MetricsMap::with_capacity(512);
 
-    let mut cursor = 0usize;
+    let mut cursor = 0;
 
     while cursor < buffer.len() {
         let rng = cursor..cursor + U8AVXLNS;
 
-        if rng.end <= buffer.len() {
-            let chunk = U8AVX::from_slice(&buffer[rng]);
-            let semimask = chunk.simd_eq(SEMI);
-            let newlmask = chunk.simd_eq(NEWL);
-
-            println!("{}", unsafe { str::from_utf8_unchecked(&chunk.as_ref()) });
-            dbg!(semimask);
-            dbg!(newlmask);
-
-            cursor += U8AVXLNS;
-        } else {
-            // TODO: process scalar
-            // process scalar
-            cursor += 1;
+        if rng.end > buffer.len() {
+            // TODO: parse the remainder; does not fit simd
+            break;
         }
+
+        let chunk = U8AVX::from_slice(&buffer[rng]);
+
+        let semi = chunk.simd_eq(SEMI).to_bitmask().trailing_zeros() as usize;
+        let newl = chunk.simd_eq(NEWL).to_bitmask().trailing_zeros() as usize;
+
+        dbg!(unsafe { str::from_utf8_unchecked(chunk.as_ref()) });
+        dbg!(unsafe { str::from_utf8_unchecked(&chunk[semi..semi + 1]) });
+
+        cursor += 1;
     }
 
     metrics
@@ -73,7 +72,7 @@ pub fn write_metrics(metrics: MetricsMap) {
     writeln!(writer, "}}").unwrap();
 }
 
-fn parse_temperature<'a>(buffer: &'a [u8]) -> Temperature {
+fn parse_temperature(buffer: &[u8]) -> Temperature {
     let neg = (buffer[0] == b'-') as usize;
     let len = buffer.len();
 
