@@ -54,7 +54,11 @@ perf script > perf.txt
 
 ## data insights
 
-- there is a total of 413 different stations
-- the longest station name is `Las Palmas de Gran Canaria` with `26` characters
-- the shortest station name is `Wau` and `Jos` with 3 characters
-- temperatures are always in a range of `-99.9` to `99.9`
+1. there is a total of `413` different stations
+2. the longest station name is `Las Palmas de Gran Canaria` with `26` characters
+3. the shortest station name is `Wau` and `Jos` with 3 characters
+4. the distribution for station names looks something like:
+   - mean: `7.8`
+   - median: `7`
+   - mode: `6`
+5. temperatures are always in a inclusive range of `-99.9` to `99.9`
