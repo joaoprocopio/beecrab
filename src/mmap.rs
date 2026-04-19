@@ -27,10 +27,6 @@ impl Mmap {
                 return Err(io::Error::last_os_error());
             }
 
-            if libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-
             Ok(slice::from_raw_parts(ptr as *const u8, len as usize))
         }
     }

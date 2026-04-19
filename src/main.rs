@@ -14,8 +14,6 @@ type MetricsMap<'a> = HashMap<&'a [u8], Metrics>;
 
 const NEW_LINE: u8 = b'\n';
 const SEPARATOR: u8 = b';';
-// const NEGATIVE: u8 = b'-';
-// const DOT: u8 = b'.';
 
 fn main() {
     let mut metrics = MetricsMap::with_capacity(2048);
