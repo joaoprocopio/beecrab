@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
-use beecrab::core::{Metrics, MetricsMap, Temperature, TemperatureSum};
+use beecrab::core::{Metrics, MetricsMap, TemperatureSum, parse_temperature};
 use beecrab::mmap::Mmap;
 
 fn main() {
@@ -45,10 +45,6 @@ fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
         });
 
     metrics
-}
-
-fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
-    unsafe { str::from_utf8_unchecked(slice) }.parse().unwrap()
 }
 
 fn write_metrics(metrics: MetricsMap) {
