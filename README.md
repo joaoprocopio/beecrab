@@ -51,3 +51,10 @@ perf report
 perf script > perf.txt
 # paste the text file on: https://profiler.firefox.com/
 ```
+
+## data insights
+
+- there is a total of 413 different stations
+- the longest station name is `Las Palmas de Gran Canaria` with `26` characters
+- the shortest station name is `Wau` and `Jos` with 3 characters
+- temperatures are always in a range of `-99.9` to `99.9`
