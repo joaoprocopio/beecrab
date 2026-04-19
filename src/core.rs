@@ -38,6 +38,7 @@ pub fn parse_temperature<'a>(buffer: &'a [u8]) -> Temperature {
     let sign_multiplier = Temperature::from(!is_negative) * 2 - 1;
     let start_pos = usize::from(is_negative);
 
+    // TODO: make this branchless
     let fixed = match len - start_pos {
         3 => {
             utf8_char_to_temperature(buffer[start_pos]) * 10

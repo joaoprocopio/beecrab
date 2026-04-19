@@ -5,7 +5,7 @@ edition = "2024"
 
 [profile.release]
 codegen-units = 1
-debug = "full" # TODO: remove this when making production release; info useful only for debugging
+debug = "line-tables-only"
 strip = "none"
 panic = "abort"
 
