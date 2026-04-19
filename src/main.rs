@@ -1,4 +1,5 @@
 #![deny(clippy::all)]
+#![feature(slice_split_once)]
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -7,41 +8,16 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
+use beecrab::core::{Status, Temperature};
 use beecrab::mmap::Mmap;
 
-type Temperature = f64;
-
-#[derive(Debug)]
-struct Status {
-    min: Temperature,
-    max: Temperature,
-    sum: Temperature,
-    count: usize,
-}
-
-impl Status {
-    fn new(temperature: Temperature) -> Self {
-        Self {
-            max: temperature,
-            min: temperature,
-            sum: temperature,
-            count: 1,
-        }
-    }
-
-    fn update(&mut self, temperature: Temperature) {
-        self.max = temperature.max(self.max);
-        self.min = temperature.min(self.min);
-        self.sum += temperature;
-        self.count += 1;
-    }
-}
+type StatusMap<'a> = HashMap<&'a [u8], Status>;
 
 const NEW_LINE: u8 = b'\n';
-const SEPARATOR: char = ';';
+const SEPARATOR: u8 = b';';
 
 fn main() {
-    let mut statuses = HashMap::<&str, Status>::with_capacity(2048);
+    let mut statuses = StatusMap::with_capacity(2048);
 
     let filename = args()
         .nth(1)
@@ -57,9 +33,8 @@ fn main() {
     map.split(|byte| *byte == NEW_LINE)
         .filter(|byte| !byte.is_empty())
         .for_each(|line| {
-            let line = unsafe { str::from_utf8_unchecked(line) };
-            let (station, temperature) = line.split_once(SEPARATOR).unwrap();
-            let temperature: Temperature = temperature.parse().unwrap();
+            let (station, temperature) = line.split_once(|&byte| byte == SEPARATOR).unwrap();
+            let temperature = 1.0;
 
             match statuses.entry(station) {
                 Entry::Vacant(none) => {
@@ -71,6 +46,10 @@ fn main() {
             };
         });
 
+    write_results(statuses);
+}
+
+fn write_results(statuses: StatusMap) {
     let mut sorted = statuses.keys().collect::<Vec<_>>();
     sorted.sort_unstable();
 
@@ -83,6 +62,7 @@ fn main() {
 
     while let Some(station) = sorted.next() {
         let status = statuses.get(station).unwrap();
+        let station = unsafe { str::from_utf8_unchecked(station) };
 
         write!(
             writer,

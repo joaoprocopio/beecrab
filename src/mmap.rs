@@ -10,7 +10,7 @@ pub struct Mmap {
 }
 
 impl Mmap {
-    pub fn map(file: &File) -> io::Result<&[u8]> {
+    pub fn map<'a>(file: &File) -> io::Result<&'a [u8]> {
         let len = file.metadata()?.len() as libc::size_t;
 
         unsafe {
