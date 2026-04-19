@@ -1,17 +1,14 @@
 #![feature(portable_simd)]
 
-use std::collections::hash_map::Entry;
 use std::env::{args, current_dir};
 use std::fs::File;
-use std::io;
-use std::io::Write;
+use std::io::BufWriter;
+use std::io::{Write, stdout};
+use std::os::fd::AsRawFd;
 use std::simd::u8x32;
 
-use beecrab::core::{Metrics, MetricsMap, TemperatureSum, parse_temperature};
+use beecrab::core::{MetricsMap, TemperatureSum};
 use beecrab::mmap::Mmap;
-
-const SEMI: u8x32 = u8x32::splat(b';');
-const NEWL: u8x32 = u8x32::splat(b'\n');
 
 fn main() {
     let filename = args()
@@ -21,14 +18,36 @@ fn main() {
         .and_then(|path| path.join(filename).canonicalize())
         .and_then(|path| File::open(path))
         .unwrap();
-    let buffer = Mmap::map(&file).unwrap();
 
-    let metrics = compute_metrics(buffer);
+    let map = Mmap::new(file.metadata().unwrap().len() as usize, file.as_raw_fd(), 0).unwrap();
+
+    let metrics = compute_metrics(map.as_slice());
     write_metrics(metrics);
 }
 
 fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
-    let mut metrics = MetricsMap::with_capacity(256);
+    let mut metrics = MetricsMap::with_capacity(512);
+
+    // let semi = u8x32::splat(b';');
+    // let newl = u8x32::splat(b'\n');
+
+    // TODO: process the remainder
+    let (chunks, _remainder) = buffer.as_chunks::<32>();
+
+    for chunk in chunks {
+        let chunk = u8x32::from_slice(chunk);
+        // let semi_eq = chunk.simd_eq(semi);
+
+        // println!("{:?}", semi_eq.to_array());
+        // println!("{:?}", semi_eq.to_bitmask());
+    }
+
+    // for chunk in buffer.chunks(32) {
+
+    //     let chunk = u8x32::from_slice(buffer);
+    //     let semimask = chunk.simd_eq(semi);
+    //     let newlmask = chunk.simd_eq(newl);
+    // }
 
     // buffer
     //     .split(|byte| *byte == b'\n')
@@ -54,7 +73,7 @@ fn write_metrics(metrics: MetricsMap) {
     let mut stations = metrics.keys().collect::<Vec<_>>();
     stations.sort_unstable();
     let mut stations = stations.into_iter().peekable();
-    let mut writer = io::BufWriter::new(io::stdout().lock());
+    let mut writer = BufWriter::new(stdout().lock());
 
     write!(writer, "{{").unwrap();
 

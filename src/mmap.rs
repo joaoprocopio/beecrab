@@ -1,34 +1,40 @@
 use libc;
 use std::io;
-use std::os::fd::AsRawFd;
 use std::ptr;
-use std::{fs::File, slice};
+use std::slice;
 
 pub struct Mmap {
-    ptr: *const u8,
-    len: usize,
+    ptr: *mut libc::c_void,
+    len: libc::size_t,
 }
 
 impl Mmap {
-    pub fn map<'a>(file: &File) -> io::Result<&'a [u8]> {
-        let len = file.metadata()?.len() as libc::size_t;
-
-        unsafe {
+    pub fn new(len: libc::size_t, fd: libc::c_int, offset: libc::off_t) -> io::Result<Self> {
+        let ptr = unsafe {
+            // TODO: when the code is running on parallel, flags should be configured
             let ptr = libc::mmap(
                 ptr::null_mut(),
                 len,
                 libc::PROT_READ,
                 libc::MAP_PRIVATE,
-                file.as_raw_fd(),
-                0,
+                fd,
+                offset,
             );
 
             if ptr == libc::MAP_FAILED {
                 return Err(io::Error::last_os_error());
             }
 
-            Ok(slice::from_raw_parts(ptr as *const u8, len as usize))
-        }
+            // TODO: advise with SEQUENTIAL and/or HUGE PAGES
+
+            ptr
+        };
+
+        Ok(Self { ptr: ptr, len: len })
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.ptr as *const u8, self.len) }
     }
 }
 
@@ -37,7 +43,7 @@ impl Drop for Mmap {
         // this could fail silently...
         if !self.ptr.is_null() && self.len > 0 {
             unsafe {
-                libc::munmap(self.ptr as *mut libc::c_void, self.len);
+                libc::munmap(self.ptr, self.len);
             }
         }
     }
