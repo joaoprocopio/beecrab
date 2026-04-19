@@ -2,6 +2,12 @@
 
 1 billion row challenge in rust.
 
+## notes
+
+- naive: b710b6070e94110aab47036afa382dfd1f4e40ca
+- btree to hashmap: 36af5fa4d9e2850f8c6ae6939b1672593f112ba6
+- memory mapping: 3a97d429c6af92ef2611a23f679b56a2e1abbc45
+
 ## development
 
 ### generating data
