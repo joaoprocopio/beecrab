@@ -1,4 +1,5 @@
 #![feature(slice_split_once)]
+#![feature(portable_simd)]
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -16,55 +17,59 @@ const NEW_LINE: u8 = b'\n';
 const SEPARATOR: u8 = b';';
 
 fn main() {
-    let mut metrics = MetricsMap::with_capacity(256);
-
     let filename = args()
         .nth(1)
         .expect("measurements file path should be provider");
-
     let file = current_dir()
         .and_then(|path| path.join(filename).canonicalize())
         .and_then(|path| File::open(path))
         .unwrap();
+    let buffer = Mmap::map(&file).unwrap();
 
-    let slice = Mmap::map(&file).unwrap();
-
-    slice
-        .split(|byte| *byte == NEW_LINE)
-        .filter(|byte| !byte.is_empty())
-        .for_each(|line| {
-            let (station, temperature) = line.split_once(|&byte| byte == SEPARATOR).unwrap();
-            let temperature = parse_temperature(temperature);
-
-            match metrics.entry(station) {
-                Entry::Vacant(none) => {
-                    none.insert(Metrics::new(temperature));
-                }
-                Entry::Occupied(mut some) => {
-                    some.get_mut().update(temperature);
-                }
-            };
-        });
-
-    write_results(metrics);
+    let metrics = compute_metrics(buffer);
+    write_metrics(metrics);
 }
 
-fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
-    unsafe { str::from_utf8_unchecked(slice) }.parse().unwrap()
+fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
+    let metrics = MetricsMap::with_capacity(256);
+
+    for byte in buffer.chunks(64) {
+        dbg!(unsafe { str::from_utf8_unchecked(byte) });
+    }
+
+    // slice
+    //     .split(|byte| *byte == NEW_LINE)
+    //     .filter(|byte| !byte.is_empty())
+    //     .for_each(|line| {
+    //         let (station, temperature) = line.split_once(|&byte| byte == SEPARATOR).unwrap();
+    //         let temperature = parse_temperature(temperature);
+
+    //         match metrics.entry(station) {
+    //             Entry::Vacant(none) => {
+    //                 none.insert(Metrics::new(temperature));
+    //             }
+    //             Entry::Occupied(mut some) => {
+    //                 some.get_mut().update(temperature);
+    //             }
+    //         };
+    //     });
+
+    metrics
 }
 
-fn write_results(metrics: MetricsMap) {
-    let mut sorted = metrics.keys().collect::<Vec<_>>();
-    sorted.sort_unstable();
+// fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
+//     unsafe { str::from_utf8_unchecked(slice) }.parse().unwrap()
+// }
 
-    let mut sorted = sorted.into_iter().peekable();
-
-    let stdout = io::stdout();
-    let mut writer = io::BufWriter::new(stdout.lock());
+fn write_metrics(metrics: MetricsMap) {
+    let mut stations = metrics.keys().collect::<Vec<_>>();
+    stations.sort_unstable();
+    let mut stations = stations.into_iter().peekable();
+    let mut writer = io::BufWriter::new(io::stdout().lock());
 
     write!(writer, "{{").unwrap();
 
-    while let Some(station) = sorted.next() {
+    while let Some(station) = stations.next() {
         let status = metrics.get(station).unwrap();
         let station = unsafe { str::from_utf8_unchecked(station) };
 
@@ -78,12 +83,10 @@ fn write_results(metrics: MetricsMap) {
         )
         .unwrap();
 
-        if let Some(_) = sorted.peek() {
+        if let Some(_) = stations.peek() {
             write!(writer, ", ").unwrap();
         }
     }
 
     writeln!(writer, "}}").unwrap();
-
-    writer.flush().unwrap();
 }
