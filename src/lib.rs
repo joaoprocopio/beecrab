@@ -1,6 +1,7 @@
 #![feature(portable_simd)]
 
-use crate::metrics::{MetricsMap, Temperature};
+use crate::metrics::{Metrics, MetricsMap, Temperature};
+use std::collections::hash_map::Entry;
 use std::io::BufWriter;
 use std::io::{Write, stdout};
 use std::simd::cmp::SimdPartialEq;
@@ -16,28 +17,49 @@ const SEMI: U8AVX = U8AVX::splat(b';');
 const NEWL: U8AVX = U8AVX::splat(b'\n');
 
 pub fn compute_metrics(buffer: &[u8]) -> MetricsMap<'_> {
-    let metrics = MetricsMap::with_capacity(512);
-
+    let mut metrics = MetricsMap::with_capacity(512);
     let mut cursor = 0;
+    let mut line_start = 0;
+    let mut semi_pos = None;
 
-    while cursor < buffer.len() {
-        let rng = cursor..cursor + U8AVXLNS;
+    while cursor + U8AVXLNS <= buffer.len() {
+        let chunk = U8AVX::from_slice(&buffer[cursor..cursor + U8AVXLNS]);
 
-        if rng.end > buffer.len() {
-            // TODO: parse the remainder; does not fit simd
-            break;
+        let semi = chunk.simd_eq(SEMI).to_bitmask();
+        let newl = chunk.simd_eq(NEWL).to_bitmask();
+        let mut mask = semi | newl;
+
+        while mask != 0 {
+            let rel = mask.trailing_zeros() as usize;
+            let abs = cursor + rel;
+
+            if ((semi >> rel) & 1) != 0 {
+                semi_pos = Some(abs);
+            } else {
+                let semi = semi_pos.expect("newline before semicolon");
+                let station = &buffer[line_start..semi];
+                let temperature = parse_temperature(&buffer[semi + 1..abs]);
+
+                match metrics.entry(station) {
+                    Entry::Vacant(none) => {
+                        none.insert(Metrics::new(temperature));
+                    }
+                    Entry::Occupied(mut some) => {
+                        some.get_mut().update(temperature);
+                    }
+                }
+
+                line_start = abs + 1;
+                semi_pos = None;
+            }
+
+            mask &= mask - 1;
         }
 
-        let chunk = U8AVX::from_slice(&buffer[rng]);
-
-        let semi = chunk.simd_eq(SEMI).to_bitmask().trailing_zeros() as usize;
-        let newl = chunk.simd_eq(NEWL).to_bitmask().trailing_zeros() as usize;
-
-        dbg!(unsafe { str::from_utf8_unchecked(chunk.as_ref()) });
-        dbg!(unsafe { str::from_utf8_unchecked(&chunk[semi..semi + 1]) });
-
-        cursor += 1;
+        cursor += U8AVXLNS;
     }
+
+    // TODO: parse the rest
 
     metrics
 }
