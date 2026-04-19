@@ -48,7 +48,7 @@ perf report
 ### visualize perf data on a gui
 
 ```sh
-perf script > perf.txt
+perf script | c++filt > perf.txt
 # paste the text file on: https://profiler.firefox.com/
 ```
 

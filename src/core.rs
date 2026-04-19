@@ -33,30 +33,21 @@ impl Metrics {
 }
 
 pub fn parse_temperature<'a>(buffer: &'a [u8]) -> Temperature {
+    let neg = (buffer[0] == b'-') as usize;
     let len = buffer.len();
-    let is_negative = buffer[0] == b'-';
-    let sign_multiplier = Temperature::from(!is_negative) * 2 - 1;
-    let start_pos = usize::from(is_negative);
 
-    // TODO: make this branchless
-    let fixed = match len - start_pos {
-        3 => {
-            utf8_char_to_temperature(buffer[start_pos]) * 10
-                + utf8_char_to_temperature(buffer[start_pos + 2])
-        }
-        4 => {
-            utf8_char_to_temperature(buffer[start_pos]) * 100
-                + utf8_char_to_temperature(buffer[start_pos + 1]) * 10
-                + utf8_char_to_temperature(buffer[start_pos + 3])
-        }
-        _ => unreachable!(),
-    };
+    // Always valid — dot is at len-2, ones at len-3, frac at len-1
+    let frac = (buffer[len - 1] - b'0') as Temperature;
+    let ones = (buffer[len - 3] - b'0') as Temperature;
 
-    sign_multiplier * fixed
-}
+    // tens digit exists only when (len - neg) == 4
+    // saturating_sub(4): when len==3, falls back to index 0 (safe, gets masked out)
+    let has_tens = (len >= 4 + neg) as Temperature;
+    let tens = has_tens * buffer[len.saturating_sub(4)].wrapping_sub(b'0') as Temperature;
 
-fn utf8_char_to_temperature(utf8_char: u8) -> Temperature {
-    Temperature::from(utf8_char - b'0')
+    let val = tens * 100 + ones * 10 + frac;
+
+    (1 - 2 * neg as Temperature) * val
 }
 
 #[cfg(test)]
