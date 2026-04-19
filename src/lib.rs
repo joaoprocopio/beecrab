@@ -1,7 +1,6 @@
 #![feature(portable_simd)]
 
 use crate::metrics::{Metrics, MetricsMap, Temperature};
-use std::collections::hash_map::Entry;
 use std::io::BufWriter;
 use std::io::{Write, stdout};
 use std::simd::cmp::SimdPartialEq;
@@ -18,34 +17,31 @@ const NEWL: U8AVX = U8AVX::splat(b'\n');
 
 pub fn compute_metrics(buffer: &[u8]) -> MetricsMap<'_> {
     let mut metrics = MetricsMap::with_capacity(512);
+
     let mut cursor = 0;
     let mut line_start = 0;
     let mut semi_pos = None;
 
     while cursor + U8AVXLNS <= buffer.len() {
         let chunk = U8AVX::from_slice(&buffer[cursor..cursor + U8AVXLNS]);
-
-        let semi = chunk.simd_eq(SEMI).to_bitmask();
-        let newl = chunk.simd_eq(NEWL).to_bitmask();
-        let mut mask = semi | newl;
+        let semi_mask = chunk.simd_eq(SEMI).to_bitmask();
+        let newl_mask = chunk.simd_eq(NEWL).to_bitmask();
+        let mut mask = semi_mask | newl_mask;
 
         while mask != 0 {
             let rel = mask.trailing_zeros() as usize;
             let abs = cursor + rel;
-
-            if ((semi >> rel) & 1) != 0 {
+            if ((semi_mask >> rel) & 1) != 0 {
                 semi_pos = Some(abs);
             } else {
                 let semi = semi_pos.expect("newline before semicolon");
                 let station = &buffer[line_start..semi];
                 let temperature = parse_temperature(&buffer[semi + 1..abs]);
 
-                match metrics.entry(station) {
-                    Entry::Vacant(none) => {
-                        none.insert(Metrics::new(temperature));
-                    }
-                    Entry::Occupied(mut some) => {
-                        some.get_mut().update(temperature);
+                match metrics.get_mut(station) {
+                    Some(metric) => metric.update(temperature),
+                    None => {
+                        metrics.insert(station, Metrics::new(temperature));
                     }
                 }
 
@@ -55,7 +51,6 @@ pub fn compute_metrics(buffer: &[u8]) -> MetricsMap<'_> {
 
             mask &= mask - 1;
         }
-
         cursor += U8AVXLNS;
     }
 
