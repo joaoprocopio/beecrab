@@ -1,14 +1,12 @@
 #![deny(clippy::all)]
 
-use fxhash::{FxBuildHasher, FxHashMap};
-use libc;
+use std::collections::HashMap;
 use std::env::{args, current_dir};
 use std::fs::File;
 use std::io;
 use std::io::Write;
-use std::os::fd::AsRawFd;
-use std::ptr::null_mut as null_mut_ptr;
-use std::slice;
+
+use beecrab::mmap::Mmap;
 
 #[derive(Debug)]
 struct Status {
@@ -33,8 +31,7 @@ const NEW_LINE: u8 = b"\n"[0];
 const SEPARATOR: &'static str = ";";
 
 fn main() {
-    let mut statuses =
-        FxHashMap::<&str, Status>::with_capacity_and_hasher(2048, FxBuildHasher::default());
+    let mut statuses = HashMap::<&str, Status>::with_capacity(2048);
 
     let file = args()
         .nth(1)
@@ -44,8 +41,9 @@ fn main() {
         .and_then(|path| File::open(path))
         .unwrap();
 
-    mmap(&file)
-        .split(|&byte| byte == NEW_LINE)
+    let map = Mmap::map(&file).unwrap();
+
+    map.split(|&byte| byte == NEW_LINE)
         .filter(|&byte| !byte.is_empty())
         .for_each(|line| {
             let line = unsafe { str::from_utf8_unchecked(line) };
@@ -89,31 +87,4 @@ fn main() {
     }
 
     write!(writer, "}}").unwrap();
-}
-
-fn mmap(file: &File) -> &[u8] {
-    let len = file.metadata().unwrap().len() as libc::size_t;
-
-    unsafe {
-        let ptr = libc::mmap(
-            null_mut_ptr(),
-            len,
-            libc::PROT_READ,
-            libc::MAP_PRIVATE,
-            file.as_raw_fd(),
-            0,
-        );
-
-        if ptr == libc::MAP_FAILED {
-            panic!("{:?}", io::Error::last_os_error());
-        }
-
-        if libc::madvise(ptr, len, libc::MADV_SEQUENTIAL) != 0 {
-            panic!("{:?}", io::Error::last_os_error());
-        }
-
-        slice::from_raw_parts(ptr as *const u8, len as usize)
-    }
-
-    // TODO: maybe munmap? it's needed if we're just shutting down the program?
 }
