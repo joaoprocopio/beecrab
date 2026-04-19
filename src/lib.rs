@@ -1,29 +1,44 @@
-#![deny(clippy::all)]
 #![feature(portable_simd)]
 
+use crate::metrics::{MetricsMap, Temperature};
 use std::io::BufWriter;
 use std::io::{Write, stdout};
-use std::simd::u8x32;
-
-use crate::metrics::{MetricsMap, Temperature, TemperatureSum};
+use std::simd::cmp::SimdPartialEq;
 
 pub mod metrics;
 pub mod mmap;
 
+const U8AVXLNS: usize = 64;
+
+type U8AVX = std::simd::Simd<u8, U8AVXLNS>;
+
+const SEMI: U8AVX = U8AVX::splat(b';');
+const NEWL: U8AVX = U8AVX::splat(b'\n');
+
 pub fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
-    let mut metrics = MetricsMap::with_capacity(512);
+    let metrics = MetricsMap::with_capacity(512);
 
-    let semi = u8x32::splat(b';');
-    let newl = u8x32::splat(b'\n');
+    let mut cursor = 0usize;
 
-    // TODO: process the remainder
-    let (chunks, _remainder) = buffer.as_chunks::<32>();
+    while cursor < buffer.len() {
+        let rng = cursor..cursor + U8AVXLNS;
 
-    // for chunk in chunks {
-    //     let chunk = u8x32::from_slice(chunk);
-    //     let semimsk = chunk.simd_eq(semi);
-    //     let newlmsk = chunk.simd_eq(newl);
-    // }
+        if rng.end <= buffer.len() {
+            let chunk = U8AVX::from_slice(&buffer[rng]);
+            let semimask = chunk.simd_eq(SEMI);
+            let newlmask = chunk.simd_eq(NEWL);
+
+            println!("{}", unsafe { str::from_utf8_unchecked(&chunk.as_ref()) });
+            dbg!(semimask);
+            dbg!(newlmask);
+
+            cursor += U8AVXLNS;
+        } else {
+            // TODO: process scalar
+            // process scalar
+            cursor += 1;
+        }
+    }
 
     // buffer
     //     .split(|byte| *byte == b'\n')
@@ -62,7 +77,7 @@ pub fn write_metrics(metrics: MetricsMap) {
             "{}={:.1}/{:.1}/{:.1}",
             station,
             status.min as f64 / 10.0,
-            (status.sum / status.count as TemperatureSum) as f64 / 10.0,
+            (status.sum / status.count as Temperature) as f64 / 10.0,
             status.max as f64 / 10.0
         )
         .unwrap();
