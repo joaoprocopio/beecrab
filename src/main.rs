@@ -1,20 +1,14 @@
-#![feature(slice_split_once)]
 #![feature(portable_simd)]
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::env::{args, current_dir};
 use std::fs::File;
 use std::io;
 use std::io::Write;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 
-use beecrab::core::{Metrics, Temperature, TemperatureSum};
+use beecrab::core::{MetricsMap, TemperatureSum};
 use beecrab::mmap::Mmap;
-
-type MetricsMap<'a> = HashMap<&'a [u8], Metrics>;
-
-const NEW_LINE: u8 = b'\n';
-const SEPARATOR: u8 = b';';
 
 fn main() {
     let filename = args()
@@ -33,9 +27,17 @@ fn main() {
 fn compute_metrics<'a>(buffer: &'a [u8]) -> MetricsMap<'a> {
     let metrics = MetricsMap::with_capacity(256);
 
-    for byte in buffer.chunks(64) {
-        dbg!(unsafe { str::from_utf8_unchecked(byte) });
-    }
+    let semi = u8x32::splat(b';');
+    let newl = u8x32::splat(b'\n');
+    let chunk = u8x32::from_slice(&buffer[0..32]);
+    let mask = chunk.simd_eq(semi) | chunk.simd_eq(newl);
+
+    dbg!(mask);
+    // dbg!(chunk);
+
+    // for byte in buffer.chunks(64) {
+    //     dbg!(unsafe { str::from_utf8_unchecked(byte) });
+    // }
 
     // slice
     //     .split(|byte| *byte == NEW_LINE)

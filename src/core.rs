@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
 pub type Temperature = f64;
 pub type TemperatureSum = i64;
 pub type TemperatureCount = usize;
+
+pub type MetricsMap<'a> = HashMap<&'a [u8], Metrics>;
 
 #[derive(Debug)]
 pub struct Metrics {
