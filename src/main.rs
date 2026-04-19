@@ -27,24 +27,25 @@ impl Default for Status {
     }
 }
 
-const NEW_LINE: u8 = b"\n"[0];
-const SEPARATOR: &'static str = ";";
+const NEW_LINE: u8 = b'\n';
+const SEPARATOR: char = ';';
 
 fn main() {
     let mut statuses = HashMap::<&str, Status>::with_capacity(2048);
 
-    let file = args()
+    let filename = args()
         .nth(1)
         .expect("measurements file path should be provider");
+
     let file = current_dir()
-        .and_then(|path| path.join(file).canonicalize())
+        .and_then(|path| path.join(filename).canonicalize())
         .and_then(|path| File::open(path))
         .unwrap();
 
     let map = Mmap::map(&file).unwrap();
 
     map.split(|&byte| byte == NEW_LINE)
-        .filter(|&byte| !byte.is_empty())
+        .filter(|byte| !byte.is_empty())
         .for_each(|line| {
             let line = unsafe { str::from_utf8_unchecked(line) };
             let (station, temperature) = line.split_once(SEPARATOR).unwrap();
@@ -86,5 +87,7 @@ fn main() {
         }
     }
 
-    write!(writer, "}}").unwrap();
+    writeln!(writer, "}}").unwrap();
+
+    writer.flush().unwrap();
 }
