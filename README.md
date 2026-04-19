@@ -47,8 +47,12 @@ perf report
 
 ### visualize perf data on a gui
 
+> you need to install `rustfilt` with `cargo install rustfilt`
+>
+> this is needed to demangle rust symbol names
+
 ```sh
-perf script | c++filt > perf.txt
+perf script | rustfilt > perf.txt
 # paste the text file on: https://profiler.firefox.com/
 ```
 
