@@ -28,8 +28,6 @@ fn main() {
     .and_then(|map| map.advise(libc::MADV_HUGEPAGE))
     .unwrap();
 
-    // TODO: advise with SEQUENTIAL and/or HUGE PAGES
-
     let metrics = compute_metrics(map.as_slice());
     write_metrics(metrics);
 }
