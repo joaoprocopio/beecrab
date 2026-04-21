@@ -91,6 +91,8 @@ impl<'a> Metrics<'a> {
                 bitmask &= bitmask - 1;
             }
         }
+
+        // TODO: parse remainder
     }
 
     pub fn render(&self) -> io::Result<()> {
