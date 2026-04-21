@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use rapidhash::{HashMapExt, RapidHashMap as HashMap};
 use std::io::{self, BufWriter};
 use std::io::{Write, stdout};
 use std::simd::cmp::SimdPartialEq;
@@ -39,13 +38,13 @@ const SEMICOLON: u8x64 = u8x64::splat(b';');
 const NEWLINE: u8x64 = u8x64::splat(b'\n');
 
 pub struct Metrics<'a> {
-    aggregates: HashMap<&'a [u8], Aggregate>,
+    inner: HashMap<&'a [u8], Aggregate>,
 }
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
         Self {
-            aggregates: HashMap::with_capacity(512),
+            inner: HashMap::with_capacity(512),
         }
     }
 
@@ -77,12 +76,12 @@ impl<'a> Metrics<'a> {
                     let temperature =
                         parse_temperature(&buffer[semicolon_cursor + 1..absolute_index]);
 
-                    match self.aggregates.entry(station) {
-                        Entry::Vacant(none) => {
-                            none.insert(Aggregate::new(temperature));
+                    match self.inner.get_mut(station) {
+                        Some(value) => {
+                            value.update(temperature);
                         }
-                        Entry::Occupied(mut some) => {
-                            some.get_mut().update(temperature);
+                        None => {
+                            self.inner.insert(station, Aggregate::new(temperature));
                         }
                     }
 
@@ -103,7 +102,7 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(&self) -> io::Result<()> {
-        let mut stations = self.aggregates.keys().collect::<Vec<_>>();
+        let mut stations = self.inner.keys().collect::<Vec<_>>();
 
         stations.sort_unstable();
 
@@ -113,7 +112,7 @@ impl<'a> Metrics<'a> {
         write!(writer, "{{")?;
 
         while let Some(station) = stations.next() {
-            let status = self.aggregates.get(station).expect("invalid memory state");
+            let status = self.inner.get(station).expect("invalid memory state");
             let station = unsafe { str::from_utf8_unchecked(station) };
 
             write!(
