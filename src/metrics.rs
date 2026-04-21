@@ -136,14 +136,14 @@ impl<'a> Metrics<'a> {
         write!(&mut writer, "{{")?;
 
         while let Some((station, aggregate)) = stations.next() {
-            write!(
-                &mut writer,
-                "{}={:.1}/{:.1}/{:.1}",
-                unsafe { str::from_utf8_unchecked(station) },
-                aggregate.min as f64 / 10.0,
-                (aggregate.sum / aggregate.count) as f64 / 10.0,
-                aggregate.max as f64 / 10.0
-            )?;
+            let station = unsafe { str::from_utf8_unchecked(station) };
+
+            let min = aggregate.min as f64 / 10.0;
+            let avg =
+                (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count) as f64 / 10.0;
+            let max = aggregate.max as f64 / 10.0;
+
+            write!(&mut writer, "{}={:.1}/{:.1}/{:.1}", station, min, avg, max)?;
 
             if stations.peek().is_some() {
                 write!(&mut writer, ", ")?;
