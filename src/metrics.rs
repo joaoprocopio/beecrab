@@ -6,7 +6,6 @@ use std::io;
 use std::io::Write;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x64;
-use std::sync::Arc;
 
 pub const NEWLINE: u8 = b'\n';
 pub const SEMICOLON: u8 = b';';
@@ -48,25 +47,19 @@ impl Aggregate {
 type MetricsInner<'a> = ConcurrentHashMap<&'a [u8], Aggregate, FastHasher>;
 
 pub struct Metrics<'a> {
-    metrics: Arc<MetricsInner<'a>>,
+    metrics: MetricsInner<'a>,
 }
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
         Self {
-            metrics: Arc::new(MetricsInner::with_capacity_and_hasher_and_shard_amount(
-                512,
-                FastHasher::new(),
-                64,
-            )),
+            metrics: MetricsInner::with_capacity_and_hasher(512, FastHasher::new()),
         }
     }
 
     #[inline]
     pub fn upsert(&self, station: &'a [u8], temperature: Temperature) {
-        let metrics = self.metrics.clone();
-
-        metrics
+        self.metrics
             .entry(station)
             .and_modify(|aggregate| {
                 aggregate.update(temperature);
@@ -135,11 +128,17 @@ impl<'a> Metrics<'a> {
 
             cursor += 1;
         }
+
+        if let Some(semicolon_cursor) = maybe_semicolon_cursor {
+            let station = &slice[line_start_cursor..semicolon_cursor];
+            let temperature = parse_temperature(&slice[semicolon_cursor + 1..]);
+
+            self.upsert(station, temperature);
+        }
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let metrics = Arc::try_unwrap(self.metrics).expect("other Arc references are still alive");
-        let mut stations = BTreeMap::from_iter(metrics.into_iter())
+        let mut stations = BTreeMap::from_iter(self.metrics.into_iter())
             .into_iter()
             .peekable();
 
@@ -273,6 +272,20 @@ mod tests {
     #[test]
     fn measurements_shortest() {
         measure("measurements-shortest.txt");
+    }
+
+    #[test]
+    fn measurements_without_trailing_newline() {
+        let metrics = Metrics::new();
+        metrics.compute(b"Abhaia;12.3\nAccra;-9.9");
+
+        let mut result = Vec::new();
+        metrics.render(&mut result).unwrap();
+
+        assert_eq!(
+            String::from_utf8(result).unwrap(),
+            "{Abhaia=12.3/12.3/12.3, Accra=-9.9/-9.9/-9.9}\n"
+        );
     }
 
     #[test]
