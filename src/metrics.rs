@@ -101,16 +101,15 @@ impl<'a> Metrics<'a> {
         );
     }
 
-    pub fn render(self) -> io::Result<()> {
+    pub fn render(self, mut writer: impl Write) -> io::Result<()> {
         let stations = BTreeMap::from_iter(self.inner.into_iter());
         let mut stations = stations.into_iter().peekable();
-        let mut writer = io::BufWriter::new(io::stdout().lock());
 
-        write!(writer, "{{")?;
+        write!(&mut writer, "{{")?;
 
         while let Some((station, aggregate)) = stations.next() {
             write!(
-                writer,
+                &mut writer,
                 "{}={:.1}/{:.1}/{:.1}",
                 unsafe { str::from_utf8_unchecked(station) },
                 aggregate.min as f64 / 10.0,
@@ -119,11 +118,11 @@ impl<'a> Metrics<'a> {
             )?;
 
             if stations.peek().is_some() {
-                write!(writer, ", ")?;
+                write!(&mut writer, ", ")?;
             }
         }
 
-        writeln!(writer, "}}")?;
+        writeln!(&mut writer, "}}")?;
 
         writer.flush()?;
 
@@ -154,7 +153,88 @@ fn parse_temperature(buffer: &[u8]) -> Temperature {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::PathBuf};
+
     use super::*;
+
+    fn measure(filename: &str) {
+        let input_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("1brc/src/test/resources/samples")
+            .join(filename);
+
+        let assert_path = input_path.with_extension("out");
+
+        let input = fs::read(&input_path).unwrap();
+        let expected = fs::read(&assert_path).unwrap();
+
+        let mut metrics = Metrics::new();
+        metrics.compute(&input);
+
+        let mut result = Vec::new();
+        metrics.render(&mut result).unwrap();
+
+        assert_eq!(result, expected, "mismatch for {:?}", input_path)
+    }
+
+    #[test]
+    fn measurements_1() {
+        measure("measurements-1.txt");
+    }
+
+    #[test]
+    fn measurements_2() {
+        measure("measurements-2.txt");
+    }
+
+    #[test]
+    fn measurements_3() {
+        measure("measurements-3.txt");
+    }
+
+    #[test]
+    fn measurements_10() {
+        measure("measurements-10.txt");
+    }
+
+    #[test]
+    fn measurements_20() {
+        measure("measurements-20.txt");
+    }
+
+    #[test]
+    fn measurements_10000_unique_keys() {
+        measure("measurements-10000-unique-keys.txt");
+    }
+
+    #[test]
+    fn measurements_boundaries() {
+        measure("measurements-boundaries.txt");
+    }
+
+    #[test]
+    fn measurements_complex_utf8() {
+        measure("measurements-complex-utf8.txt");
+    }
+
+    #[test]
+    fn measurements_dot() {
+        measure("measurements-dot.txt");
+    }
+
+    #[test]
+    fn measurements_rounding() {
+        measure("measurements-rounding.txt");
+    }
+
+    #[test]
+    fn measurements_short() {
+        measure("measurements-short.txt");
+    }
+
+    #[test]
+    fn measurements_shortest() {
+        measure("measurements-shortest.txt");
+    }
 
     #[test]
     fn should_parse_temperature() {

@@ -3,6 +3,7 @@ use beecrab::mmap::Mmap;
 use libc;
 use std::env::{args, current_dir};
 use std::fs::File;
+use std::io;
 use std::os::fd::AsRawFd;
 
 fn main() {
@@ -30,5 +31,7 @@ fn main() {
 
     let mut metrics = Metrics::new();
     metrics.compute(mmap.as_slice());
-    metrics.render().unwrap();
+
+    let writer = io::BufWriter::new(io::stdout().lock());
+    metrics.render(writer).unwrap();
 }
