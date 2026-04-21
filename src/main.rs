@@ -29,7 +29,7 @@ fn main() {
     mmap.advise(libc::MADV_HUGEPAGE).unwrap();
     mmap.advise(libc::MADV_WILLNEED).unwrap();
 
-    let mut metrics = Metrics::new();
+    let metrics = Metrics::new();
     metrics.compute(mmap.as_slice());
 
     let writer = io::BufWriter::new(io::stdout().lock());

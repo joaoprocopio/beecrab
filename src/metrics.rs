@@ -1,10 +1,20 @@
-use rapidhash::{HashMapExt, RapidHashMap as HashMap};
+use dashmap::DashMap as ConcurrentHashMap;
+use rapidhash::fast::RandomState as FastHasher;
 use std::collections::BTreeMap;
 use std::hint;
 use std::io;
 use std::io::Write;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x64;
+use std::sync::Arc;
+
+const NEWLINE: u8 = b'\n';
+const SEMICOLON: u8 = b';';
+
+const SEMICOLON_SIMD: u8x64 = u8x64::splat(SEMICOLON);
+const NEWLINE_SIMD: u8x64 = u8x64::splat(NEWLINE);
+
+const SIMD_LANES: usize = 64;
 
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
@@ -33,37 +43,30 @@ impl Aggregate {
         self.sum += temperature as TemperatureCount;
         self.count += 1;
     }
-
-    pub fn merge(&mut self, other: Self) {
-        self.max = self.max.max(other.max);
-        self.min = self.min.min(other.min);
-        self.sum += other.sum;
-        self.count += other.count;
-    }
 }
 
-impl Extend<Aggregate> for Aggregate {
-    fn extend<T: IntoIterator<Item = Aggregate>>(&mut self, iter: T) {
-        for i in iter {
-            self.extend_one(i);
-        }
-    }
+type MetricsInner<'a> = ConcurrentHashMap<&'a [u8], Aggregate, FastHasher>;
 
-    fn extend_one(&mut self, item: Aggregate) {
-        self.merge(item);
-    }
+pub struct Metrics<'a> {
+    metrics: Arc<MetricsInner<'a>>,
 }
-
-pub struct Metrics<'a>(HashMap<&'a [u8], Aggregate>);
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
-        Self(HashMap::with_capacity(512))
+        Self {
+            metrics: Arc::new(MetricsInner::with_capacity_and_hasher_and_shard_amount(
+                512,
+                FastHasher::new(),
+                64,
+            )),
+        }
     }
 
     #[inline]
-    pub fn upsert(&mut self, station: &'a [u8], temperature: Temperature) {
-        self.0
+    pub fn upsert(&self, station: &'a [u8], temperature: Temperature) {
+        let metrics = self.metrics.clone();
+
+        metrics
             .entry(station)
             .and_modify(|aggregate| {
                 aggregate.update(temperature);
@@ -71,15 +74,7 @@ impl<'a> Metrics<'a> {
             .or_insert_with(|| Aggregate::new(temperature));
     }
 
-    pub fn compute(&mut self, buffer: &'a [u8]) {
-        const NEWLINE: u8 = b'\n';
-        const SEMICOLON: u8 = b';';
-
-        const SEMICOLON_SIMD: u8x64 = u8x64::splat(SEMICOLON);
-        const NEWLINE_SIMD: u8x64 = u8x64::splat(NEWLINE);
-
-        const SIMD_LANES: usize = 64;
-
+    pub fn compute(&self, buffer: &'a [u8]) {
         let mut cursor = 0;
         let mut line_start_cursor = 0;
         let mut maybe_semicolon_cursor = None;
@@ -143,8 +138,10 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let stations = BTreeMap::from_iter(self.0.into_iter());
-        let mut stations = stations.into_iter().peekable();
+        let metrics = Arc::try_unwrap(self.metrics).expect("other Arc references are still alive");
+        let mut stations = BTreeMap::from_iter(metrics.into_iter())
+            .into_iter()
+            .peekable();
 
         write!(&mut writer, "{{")?;
 
@@ -209,7 +206,7 @@ mod tests {
         let input = fs::read(&input_path).unwrap();
         let expected = fs::read(&assert_path).unwrap();
 
-        let mut metrics = Metrics::new();
+        let metrics = Metrics::new();
         metrics.compute(&input);
 
         let mut result = Vec::new();
