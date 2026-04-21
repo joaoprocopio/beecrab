@@ -5,6 +5,9 @@
 ## todo
 
 - make it parallel, and process in chunks
+  1. divide o número de threads pelo número de bytes do arquivo (mmap.len())
+  2. acessa o arquivo e procura o primeiro newline usando simd
+  3. esse é o index que vc vai passar pro slice, Range::new((prev newlineindex + 1, ou 0 se for o inicio do arquivo)..curr_newline)
 
 ## notes
 

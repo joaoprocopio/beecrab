@@ -42,15 +42,21 @@ impl Aggregate {
     }
 }
 
-pub struct Metrics<'a> {
-    inner: HashMap<&'a [u8], Aggregate>,
-}
+pub struct Metrics<'a>(HashMap<&'a [u8], Aggregate>);
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
-        Self {
-            inner: HashMap::with_capacity(512),
-        }
+        Self(HashMap::with_capacity(512))
+    }
+
+    #[inline]
+    pub fn upsert(&mut self, station: &'a [u8], temperature: Temperature) {
+        self.0
+            .entry(station)
+            .and_modify(|aggregate| {
+                aggregate.update(temperature);
+            })
+            .or_insert_with(|| Aggregate::new(temperature));
     }
 
     pub fn compute(&mut self, buffer: &'a [u8]) {
@@ -89,12 +95,7 @@ impl<'a> Metrics<'a> {
                     let temperature =
                         parse_temperature(&buffer[semicolon_cursor + 1..absolute_index]);
 
-                    self.inner
-                        .entry(station)
-                        .and_modify(|aggregate| {
-                            aggregate.update(temperature);
-                        })
-                        .or_insert_with(|| Aggregate::new(temperature));
+                    self.upsert(station, temperature);
 
                     line_start_cursor = absolute_index + 1;
                     maybe_semicolon_cursor = None;
@@ -121,12 +122,7 @@ impl<'a> Metrics<'a> {
                 let station = &buffer[line_start_cursor..semicolon_cursor];
                 let temperature = parse_temperature(&buffer[semicolon_cursor + 1..cursor]);
 
-                self.inner
-                    .entry(station)
-                    .and_modify(|aggregate| {
-                        aggregate.update(temperature);
-                    })
-                    .or_insert_with(|| Aggregate::new(temperature));
+                self.upsert(station, temperature);
 
                 line_start_cursor = cursor + 1;
                 maybe_semicolon_cursor = None;
@@ -137,7 +133,7 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let stations = BTreeMap::from_iter(self.inner.into_iter());
+        let stations = BTreeMap::from_iter(self.0.into_iter());
         let mut stations = stations.into_iter().peekable();
 
         write!(&mut writer, "{{")?;
@@ -165,6 +161,7 @@ impl<'a> Metrics<'a> {
     }
 }
 
+#[inline]
 fn parse_temperature(buffer: &[u8]) -> Temperature {
     let len = buffer.len();
 
