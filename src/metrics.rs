@@ -1,8 +1,8 @@
 use rapidhash::{HashMapExt, RapidHashMap as HashMap};
 use std::collections::BTreeMap;
 use std::hint;
-use std::io::{self, BufWriter};
-use std::io::{Write, stdout};
+use std::io;
+use std::io::Write;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x64;
 
@@ -104,7 +104,7 @@ impl<'a> Metrics<'a> {
     pub fn render(self) -> io::Result<()> {
         let stations = BTreeMap::from_iter(self.inner.into_iter());
         let mut stations = stations.into_iter().peekable();
-        let mut writer = BufWriter::new(stdout().lock());
+        let mut writer = io::BufWriter::new(io::stdout().lock());
 
         write!(writer, "{{")?;
 
