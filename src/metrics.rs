@@ -13,7 +13,7 @@ pub type TemperatureCount = i64;
 pub struct Aggregate {
     pub min: Temperature,
     pub max: Temperature,
-    pub sum: Temperature,
+    pub sum: TemperatureCount,
     pub count: TemperatureCount,
 }
 
@@ -22,7 +22,7 @@ impl Aggregate {
         Self {
             max: temperature,
             min: temperature,
-            sum: temperature,
+            sum: temperature as TemperatureCount,
             count: 1,
         }
     }
@@ -30,7 +30,7 @@ impl Aggregate {
     pub fn update(&mut self, temperature: Temperature) {
         self.max = temperature.max(self.max);
         self.min = temperature.min(self.min);
-        self.sum += temperature;
+        self.sum += temperature as TemperatureCount;
         self.count += 1;
     }
 }
@@ -141,7 +141,7 @@ impl<'a> Metrics<'a> {
                 "{}={:.1}/{:.1}/{:.1}",
                 unsafe { str::from_utf8_unchecked(station) },
                 aggregate.min as f64 / 10.0,
-                (aggregate.sum / aggregate.count as Temperature) as f64 / 10.0,
+                (aggregate.sum / aggregate.count) as f64 / 10.0,
                 aggregate.max as f64 / 10.0
             )?;
 
