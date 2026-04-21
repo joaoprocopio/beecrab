@@ -34,7 +34,7 @@ impl Aggregate {
         self.count += 1;
     }
 
-    pub fn merge(&mut self, other: Aggregate) {
+    pub fn merge(&mut self, other: Self) {
         self.max = self.max.max(other.max);
         self.min = self.min.min(other.min);
         self.sum += other.sum;
@@ -108,25 +108,23 @@ impl<'a> Metrics<'a> {
         }
 
         while cursor < buffer.len() {
-            let c = buffer[cursor];
+            match buffer[cursor] {
+                SEMICOLON => maybe_semicolon_cursor = Some(cursor),
+                NEWLINE => {
+                    let semicolon_cursor = maybe_semicolon_cursor
+                        .take()
+                        .expect("newline must be before semicolon");
 
-            if c == SEMICOLON {
-                maybe_semicolon_cursor = Some(cursor);
-            }
+                    let station = &buffer[line_start_cursor..semicolon_cursor];
+                    let temperature = parse_temperature(&buffer[semicolon_cursor + 1..cursor]);
 
-            if c == NEWLINE {
-                let semicolon_cursor = maybe_semicolon_cursor
-                    .take()
-                    .expect("newline must be before semicolon");
+                    self.upsert(station, temperature);
 
-                let station = &buffer[line_start_cursor..semicolon_cursor];
-                let temperature = parse_temperature(&buffer[semicolon_cursor + 1..cursor]);
-
-                self.upsert(station, temperature);
-
-                line_start_cursor = cursor + 1;
-                maybe_semicolon_cursor = None;
-            }
+                    line_start_cursor = cursor + 1;
+                    maybe_semicolon_cursor = None;
+                }
+                _ => (),
+            };
 
             cursor += 1;
         }
