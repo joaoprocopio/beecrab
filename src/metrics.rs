@@ -42,6 +42,18 @@ impl Aggregate {
     }
 }
 
+impl Extend<Aggregate> for Aggregate {
+    fn extend<T: IntoIterator<Item = Aggregate>>(&mut self, iter: T) {
+        for i in iter {
+            self.extend_one(i);
+        }
+    }
+
+    fn extend_one(&mut self, item: Aggregate) {
+        self.merge(item);
+    }
+}
+
 pub struct Metrics<'a>(HashMap<&'a [u8], Aggregate>);
 
 impl<'a> Metrics<'a> {
