@@ -42,25 +42,33 @@ impl Aggregate {
         self.sum += temperature as TemperatureCount;
         self.count += 1;
     }
+}
 
-    pub fn merge(&mut self, other: Self) {
-        self.max = other.max.max(self.max);
-        self.min = other.min.min(self.min);
-        self.sum += other.sum;
-        self.count += other.count;
+impl Extend<Aggregate> for Aggregate {
+    fn extend<T: IntoIterator<Item = Aggregate>>(&mut self, iter: T) {
+        for item in iter {
+            self.extend_one(item);
+        }
+    }
+
+    fn extend_one(&mut self, item: Aggregate) {
+        self.max = item.max.max(self.max);
+        self.min = item.min.min(self.min);
+        self.sum += item.sum;
+        self.count += item.count;
     }
 }
 
 type MetricsInner<'a> = HashMap<&'a [u8], Aggregate, FastHasher>;
 
 pub struct Metrics<'a> {
-    metrics: MetricsInner<'a>,
+    inner: MetricsInner<'a>,
 }
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
         Self {
-            metrics: MetricsInner::with_capacity_and_hasher(512, FastHasher::new()),
+            inner: MetricsInner::with_capacity_and_hasher(512, FastHasher::new()),
         }
     }
 
@@ -92,7 +100,7 @@ impl<'a> Metrics<'a> {
                     let temperature =
                         parse_temperature(&slice[semicolon_cursor + 1..absolute_index]);
 
-                    match self.metrics.entry(station) {
+                    match self.inner.entry(station) {
                         Entry::Occupied(mut some) => {
                             some.get_mut().update(temperature);
                         }
@@ -122,7 +130,7 @@ impl<'a> Metrics<'a> {
                     let station = &slice[line_start_cursor..semicolon_cursor];
                     let temperature = parse_temperature(&slice[semicolon_cursor + 1..cursor]);
 
-                    match self.metrics.entry(station) {
+                    match self.inner.entry(station) {
                         Entry::Occupied(mut some) => {
                             some.get_mut().update(temperature);
                         }
@@ -142,7 +150,7 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations = BTreeMap::from_iter(self.metrics.into_iter())
+        let mut stations = BTreeMap::from_iter(self.inner.into_iter())
             .into_iter()
             .peekable();
 
@@ -179,10 +187,10 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
     }
 
     fn extend_one(&mut self, item: Metrics<'a>) {
-        for (station, aggregate) in item.metrics {
-            match self.metrics.entry(station) {
+        for (station, aggregate) in item.inner {
+            match self.inner.entry(station) {
                 Entry::Occupied(mut some) => {
-                    some.get_mut().merge(aggregate);
+                    some.get_mut().extend_one(aggregate);
                 }
                 Entry::Vacant(none) => {
                     none.insert(aggregate);
