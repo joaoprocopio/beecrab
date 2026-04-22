@@ -68,7 +68,7 @@ fn chunks(buffer: &[u8], count: usize) -> Vec<Range<usize>> {
         return vec![0..buffer.len()];
     }
 
-    let mut boundaries = Vec::with_capacity(count + 1);
+    let mut boundaries: Vec<usize> = Vec::with_capacity(count + 1);
 
     boundaries.push(0);
 
@@ -87,7 +87,7 @@ fn chunks(buffer: &[u8], count: usize) -> Vec<Range<usize>> {
 
     boundaries.push(buffer.len());
 
-    let ranges = boundaries
+    let ranges: Vec<Range<usize>> = boundaries
         .windows(2)
         .filter_map(|window| {
             let start = window[0];
