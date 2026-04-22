@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [profile.release]
+opt-level = 3
 codegen-units = 1
-debug = "line-tables-only"
-strip = "none"
+debug = false
+strip = true
+lto = false
 panic = "abort"
 
 [dependencies]

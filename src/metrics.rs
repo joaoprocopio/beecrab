@@ -1,18 +1,19 @@
 use rapidhash::fast::RandomState as FastHasher;
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hint;
 use std::io;
 use std::io::Write;
 use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x64;
 
 pub const NEWLINE: u8 = b'\n';
 pub const SEMICOLON: u8 = b';';
 
-pub const SEMICOLON_SIMD: u8x64 = u8x64::splat(SEMICOLON);
-pub const NEWLINE_SIMD: u8x64 = u8x64::splat(NEWLINE);
+pub const SIMD_LANES: usize = 32;
+pub type SIMD = std::simd::Simd<u8, SIMD_LANES>;
 
-pub const SIMD_LANES: usize = 64;
+pub const SEMICOLON_SIMD: SIMD = SIMD::splat(SEMICOLON);
+pub const NEWLINE_SIMD: SIMD = SIMD::splat(NEWLINE);
 
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
@@ -76,10 +77,10 @@ impl<'a> Metrics<'a> {
     pub fn merge(&mut self, other: Self) {
         for (station, aggregate) in other.metrics {
             match self.metrics.entry(station) {
-                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                Entry::Occupied(mut entry) => {
                     entry.get_mut().merge(aggregate);
                 }
-                std::collections::hash_map::Entry::Vacant(entry) => {
+                Entry::Vacant(entry) => {
                     entry.insert(aggregate);
                 }
             }
@@ -92,7 +93,7 @@ impl<'a> Metrics<'a> {
         let mut maybe_semicolon_cursor = None;
 
         while cursor + SIMD_LANES < slice.len() {
-            let chunk = u8x64::from_slice(&slice[cursor..cursor + SIMD_LANES]);
+            let chunk = SIMD::from_slice(&slice[cursor..cursor + SIMD_LANES]);
 
             let semicolon_bitmask = chunk.simd_eq(SEMICOLON_SIMD).to_bitmask();
             let newline_bitmask = chunk.simd_eq(NEWLINE_SIMD).to_bitmask();
