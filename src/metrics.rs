@@ -65,23 +65,25 @@ impl<'a> Metrics<'a> {
     }
 
     #[inline]
-    pub fn upsert(&mut self, station: &'a [u8], temperature: Temperature) {
-        self.metrics
-            .entry(station)
-            .and_modify(|aggregate| {
-                aggregate.update(temperature);
-            })
-            .or_insert_with(|| Aggregate::new(temperature));
+    pub fn upsert_temperature(&mut self, station: &'a [u8], temperature: Temperature) {
+        match self.metrics.entry(station) {
+            Entry::Occupied(mut some) => {
+                some.get_mut().update(temperature);
+            }
+            Entry::Vacant(none) => {
+                none.insert(Aggregate::new(temperature));
+            }
+        }
     }
 
     pub fn merge(&mut self, other: Self) {
         for (station, aggregate) in other.metrics {
             match self.metrics.entry(station) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().merge(aggregate);
+                Entry::Occupied(mut some) => {
+                    some.get_mut().merge(aggregate);
                 }
-                Entry::Vacant(entry) => {
-                    entry.insert(aggregate);
+                Entry::Vacant(none) => {
+                    none.insert(aggregate);
                 }
             }
         }
@@ -115,7 +117,7 @@ impl<'a> Metrics<'a> {
                     let temperature =
                         parse_temperature(&slice[semicolon_cursor + 1..absolute_index]);
 
-                    self.upsert(station, temperature);
+                    self.upsert_temperature(station, temperature);
 
                     line_start_cursor = absolute_index + 1;
                     maybe_semicolon_cursor = None;
@@ -138,7 +140,7 @@ impl<'a> Metrics<'a> {
                     let station = &slice[line_start_cursor..semicolon_cursor];
                     let temperature = parse_temperature(&slice[semicolon_cursor + 1..cursor]);
 
-                    self.upsert(station, temperature);
+                    self.upsert_temperature(station, temperature);
 
                     line_start_cursor = cursor + 1;
                     maybe_semicolon_cursor = None;
@@ -153,7 +155,7 @@ impl<'a> Metrics<'a> {
             let station = &slice[line_start_cursor..semicolon_cursor];
             let temperature = parse_temperature(&slice[semicolon_cursor + 1..]);
 
-            self.upsert(station, temperature);
+            self.upsert_temperature(station, temperature);
         }
     }
 
