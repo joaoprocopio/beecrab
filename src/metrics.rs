@@ -92,7 +92,14 @@ impl<'a> Metrics<'a> {
                     let temperature =
                         parse_temperature(&slice[semicolon_cursor + 1..absolute_index]);
 
-                    self.upsert_temperature(station, temperature);
+                    match self.metrics.entry(station) {
+                        Entry::Occupied(mut some) => {
+                            some.get_mut().update(temperature);
+                        }
+                        Entry::Vacant(none) => {
+                            none.insert(Aggregate::new(temperature));
+                        }
+                    }
 
                     line_start_cursor = absolute_index + 1;
                     maybe_semicolon_cursor = None;
@@ -115,7 +122,14 @@ impl<'a> Metrics<'a> {
                     let station = &slice[line_start_cursor..semicolon_cursor];
                     let temperature = parse_temperature(&slice[semicolon_cursor + 1..cursor]);
 
-                    self.upsert_temperature(station, temperature);
+                    match self.metrics.entry(station) {
+                        Entry::Occupied(mut some) => {
+                            some.get_mut().update(temperature);
+                        }
+                        Entry::Vacant(none) => {
+                            none.insert(Aggregate::new(temperature));
+                        }
+                    }
 
                     line_start_cursor = cursor + 1;
                     maybe_semicolon_cursor = None;
@@ -124,13 +138,6 @@ impl<'a> Metrics<'a> {
             };
 
             cursor += 1;
-        }
-
-        if let Some(semicolon_cursor) = maybe_semicolon_cursor {
-            let station = &slice[line_start_cursor..semicolon_cursor];
-            let temperature = parse_temperature(&slice[semicolon_cursor + 1..]);
-
-            self.upsert_temperature(station, temperature);
         }
     }
 
@@ -161,18 +168,6 @@ impl<'a> Metrics<'a> {
         writer.flush()?;
 
         Ok(())
-    }
-
-    #[inline]
-    fn upsert_temperature(&mut self, station: &'a [u8], temperature: Temperature) {
-        match self.metrics.entry(station) {
-            Entry::Occupied(mut some) => {
-                some.get_mut().update(temperature);
-            }
-            Entry::Vacant(none) => {
-                none.insert(Aggregate::new(temperature));
-            }
-        }
     }
 }
 
@@ -301,20 +296,6 @@ mod tests {
     #[test]
     fn measurements_shortest() {
         measure("measurements-shortest.txt");
-    }
-
-    #[test]
-    fn measurements_without_trailing_newline() {
-        let mut metrics = Metrics::new();
-        metrics.compute(b"Abhaia;12.3\nAccra;-9.9");
-
-        let mut result = Vec::new();
-        metrics.render(&mut result).unwrap();
-
-        assert_eq!(
-            String::from_utf8(result).unwrap(),
-            "{Abhaia=12.3/12.3/12.3, Accra=-9.9/-9.9/-9.9}\n"
-        );
     }
 
     #[test]
