@@ -23,4 +23,3 @@ lto = "off"
 
 [dependencies]
 libc = "0.2.185"
-rapidhash = "4.4.1"

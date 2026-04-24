@@ -1,4 +1,3 @@
-use rapidhash::fast::RandomState as FastHasher;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hint;
@@ -59,7 +58,7 @@ impl Extend<Aggregate> for Aggregate {
     }
 }
 
-type MetricsInner<'a> = HashMap<&'a [u8], Aggregate, FastHasher>;
+type MetricsInner<'a> = HashMap<&'a [u8], Aggregate>;
 
 pub struct Metrics<'a> {
     inner: MetricsInner<'a>,
@@ -68,7 +67,7 @@ pub struct Metrics<'a> {
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
         Self {
-            inner: MetricsInner::with_capacity_and_hasher(512, FastHasher::new()),
+            inner: MetricsInner::with_capacity(512),
         }
     }
 
