@@ -7,9 +7,19 @@ edition = "2024"
 opt-level = 3
 codegen-units = 1
 debug = false
-strip = true
-lto = true
+strip = "symbols"
+debug-assertions = false
+overflow-checks = false
+lto = false
 panic = "abort"
+incremental = false
+rpath = false
+
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"
+lto = "off"
 
 [dependencies]
 libc = "0.2.185"
