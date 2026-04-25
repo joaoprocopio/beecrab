@@ -1,5 +1,6 @@
-use hashbrown::{HashMap, hash_map::Entry};
+use hashbrown::hash_map::{Entry, HashMap, RawEntryMut};
 use std::collections::BTreeMap;
+use std::hash::BuildHasher;
 use std::hint;
 use std::io;
 use std::io::Write;
@@ -8,11 +9,11 @@ use std::simd::cmp::SimdPartialEq;
 pub const newl: u8 = b'\n';
 pub const semi: u8 = b';';
 
-pub const u8x32_lanes: usize = 32;
-pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
-
 pub const u8x32_semi: u8x32 = u8x32::splat(semi);
 pub const u8x32_newl: u8x32 = u8x32::splat(newl);
+
+pub const u8x32_lanes: usize = 32;
+pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
 
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
@@ -72,25 +73,25 @@ impl<'a> Metrics<'a> {
     }
 
     #[inline]
-    fn insert_temperature(&mut self, station: &'a [u8], temperature: Temperature) {
-        match self.inner.entry(station) {
+    fn insert_temperature(&mut self, key: &'a [u8], value: Temperature) {
+        match self.inner.entry(key) {
             Entry::Occupied(mut some) => {
-                some.get_mut().update(temperature);
+                some.get_mut().update(value);
             }
             Entry::Vacant(none) => {
-                none.insert(Aggregate::new(temperature));
+                none.insert(Aggregate::new(value));
             }
         };
     }
 
     #[inline]
-    fn insert_aggregate(&mut self, station: &'a [u8], aggregate: Aggregate) {
-        match self.inner.entry(station) {
+    fn insert_aggregate(&mut self, key: &'a [u8], value: Aggregate) {
+        match self.inner.entry(key) {
             Entry::Occupied(mut some) => {
-                some.get_mut().extend_one(aggregate);
+                some.get_mut().extend_one(value);
             }
             Entry::Vacant(none) => {
-                none.insert(aggregate);
+                none.insert(value);
             }
         };
     }
