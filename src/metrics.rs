@@ -83,6 +83,18 @@ impl<'a> Metrics<'a> {
         };
     }
 
+    #[inline]
+    fn insert_aggregate(&mut self, station: &'a [u8], aggregate: Aggregate) {
+        match self.inner.entry(station) {
+            Entry::Occupied(mut some) => {
+                some.get_mut().extend_one(aggregate);
+            }
+            Entry::Vacant(none) => {
+                none.insert(aggregate);
+            }
+        };
+    }
+
     pub fn compute(&mut self, slice: &'a [u8]) {
         let mut cursor = 0;
         let mut line_start_cursor = 0;
@@ -187,14 +199,7 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
 
     fn extend_one(&mut self, item: Metrics<'a>) {
         for (station, aggregate) in item.inner {
-            match self.inner.entry(station) {
-                Entry::Occupied(mut some) => {
-                    some.get_mut().extend_one(aggregate);
-                }
-                Entry::Vacant(none) => {
-                    none.insert(aggregate);
-                }
-            }
+            self.insert_aggregate(station, aggregate);
         }
     }
 }
