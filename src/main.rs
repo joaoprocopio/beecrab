@@ -1,5 +1,5 @@
 use beecrab::metrics::Metrics;
-use beecrab::metrics::NEWLINE;
+use beecrab::metrics::newl;
 use beecrab::mmap::Mmap;
 use libc;
 use std::env::{args, current_dir};
@@ -79,7 +79,7 @@ fn chunks(buffer: &[u8], count: usize) -> Vec<Range<usize>> {
         let target = index * buffer.len() / count;
         let boundary = buffer[target..]
             .iter()
-            .position(|byte| *byte == NEWLINE)
+            .position(|byte| *byte == newl)
             .map(|relative| target + relative + 1)
             .unwrap_or(buffer.len());
 
@@ -118,8 +118,8 @@ mod tests {
         assert_eq!(ranges.last().unwrap().end, buffer.len());
 
         for range in ranges {
-            assert!(range.start == 0 || buffer[range.start - 1] == NEWLINE);
-            assert!(range.end == buffer.len() || buffer[range.end - 1] == NEWLINE);
+            assert!(range.start == 0 || buffer[range.start - 1] == newl);
+            assert!(range.end == buffer.len() || buffer[range.end - 1] == newl);
         }
     }
 

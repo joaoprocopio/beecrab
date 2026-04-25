@@ -7,14 +7,14 @@ use std::io;
 use std::io::Write;
 use std::simd::cmp::SimdPartialEq;
 
-pub const NEWLINE: u8 = b'\n';
-pub const SEMICOLON: u8 = b';';
+pub const newl: u8 = b'\n';
+pub const semi: u8 = b';';
 
-pub const SIMD32_LANES: usize = 32;
-pub type SIMD32 = std::simd::Simd<u8, SIMD32_LANES>;
+pub const u8x32_lanes: usize = 32;
+pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
 
-pub const SEMICOLON_32_SIMD: SIMD32 = SIMD32::splat(SEMICOLON);
-pub const NEWLINE_32_SIMD: SIMD32 = SIMD32::splat(NEWLINE);
+pub const u8x32_semi: u8x32 = u8x32::splat(semi);
+pub const u8x32_newl: u8x32 = u8x32::splat(newl);
 
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
@@ -101,11 +101,11 @@ impl<'a> Metrics<'a> {
         let mut line_start_cursor = 0;
         let mut maybe_semicolon_cursor = None;
 
-        while cursor + SIMD32_LANES < slice.len() {
-            let chunk = SIMD32::from_slice(&slice[cursor..cursor + SIMD32_LANES]);
+        while cursor + u8x32_lanes < slice.len() {
+            let chunk = u8x32::from_slice(&slice[cursor..cursor + u8x32_lanes]);
 
-            let semicolon_bitmask = chunk.simd_eq(SEMICOLON_32_SIMD).to_bitmask();
-            let newline_bitmask = chunk.simd_eq(NEWLINE_32_SIMD).to_bitmask();
+            let semicolon_bitmask = chunk.simd_eq(u8x32_semi).to_bitmask();
+            let newline_bitmask = chunk.simd_eq(u8x32_newl).to_bitmask();
 
             let mut bitmask = semicolon_bitmask | newline_bitmask;
 
@@ -133,13 +133,13 @@ impl<'a> Metrics<'a> {
                 bitmask &= bitmask - 1;
             }
 
-            cursor += SIMD32_LANES;
+            cursor += u8x32_lanes;
         }
 
         while cursor < slice.len() {
             match slice[cursor] {
-                SEMICOLON => maybe_semicolon_cursor = Some(cursor),
-                NEWLINE => {
+                semi => maybe_semicolon_cursor = Some(cursor),
+                newl => {
                     let semicolon_cursor = maybe_semicolon_cursor
                         .take()
                         .expect("newline must be before semicolon");
