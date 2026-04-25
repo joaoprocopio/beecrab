@@ -159,22 +159,21 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations = BTreeMap::from_iter(
-            self.inner
-                .into_iter()
-                .map(|(key, val)| (unsafe { str::from_utf8_unchecked(key) }, val)),
-        )
-        .into_iter()
-        .peekable();
+        let mut stations =
+            BTreeMap::from_iter(self.inner.into_iter().map(|(station, aggregate)| {
+                let station = unsafe { str::from_utf8_unchecked(station) };
+                let min = aggregate.min as f64 / 10.0;
+                let avg = (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count)
+                    as f64
+                    / 10.0;
+                let max = aggregate.max as f64 / 10.0;
 
-        write!(&mut writer, "{{")?;
+                (station, (min, avg, max))
+            }))
+            .into_iter()
+            .peekable();
 
-        while let Some((station, aggregate)) = stations.next() {
-            let min = aggregate.min as f64 / 10.0;
-            let avg =
-                (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count) as f64 / 10.0;
-            let max = aggregate.max as f64 / 10.0;
-
+        while let Some((station, (min, avg, max))) = stations.next() {
             write!(&mut writer, "{}={:.1}/{:.1}/{:.1}", station, min, avg, max)?;
 
             if stations.peek().is_some() {
