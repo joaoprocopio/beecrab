@@ -1,6 +1,5 @@
-use hashbrown::hash_map::{Entry, HashMap, RawEntryMut};
+use hashbrown::hash_map::{Entry, HashMap};
 use std::collections::BTreeMap;
-use std::hash::BuildHasher;
 use std::hint;
 use std::io;
 use std::io::Write;
