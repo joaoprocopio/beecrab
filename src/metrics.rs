@@ -37,7 +37,7 @@ impl Aggregate {
 
     pub fn update(&mut self, temperature: Temperature) {
         self.max = self.max.max(temperature);
-        self.min = self.min.min(temperature);
+        self.min = -(-self.min).max(-temperature);
         self.sum += temperature as TemperatureCount;
         self.count += 1;
     }
@@ -52,7 +52,7 @@ impl Extend<Aggregate> for Aggregate {
 
     fn extend_one(&mut self, item: Aggregate) {
         self.max = self.max.max(item.max);
-        self.min = self.min.min(item.min);
+        self.min = -(-self.min).min(-item.min);
         self.sum += item.sum;
         self.count += item.count;
     }
