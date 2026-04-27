@@ -5,3 +5,4 @@
 
 pub mod metrics;
 pub mod mmap;
+pub mod table;
