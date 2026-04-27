@@ -1,5 +1,6 @@
-use hashbrown::hash_map::{Entry, HashMap};
+use crate::table::Table;
 use std::collections::BTreeMap;
+use std::hash::RandomState;
 use std::hint;
 use std::io;
 use std::io::Write;
@@ -58,41 +59,35 @@ impl Extend<Aggregate> for Aggregate {
     }
 }
 
-type MetricsInner<'a> = HashMap<&'a [u8], Aggregate>;
-
 pub struct Metrics<'a> {
-    table: MetricsInner<'a>,
+    table: Table<&'a [u8], Aggregate, RandomState, 10_000>,
 }
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
         Self {
-            table: MetricsInner::with_capacity(10_000),
+            table: Table::with_hasher(RandomState::default()),
         }
     }
 
     #[inline]
     fn insert_temperature(&mut self, key: &'a [u8], value: Temperature) {
-        match self.table.entry(key) {
-            Entry::Occupied(mut some) => {
-                some.get_mut().update(value);
+        match self.table.get_mut(key) {
+            Some(agg) => {
+                agg.update(value);
             }
-            Entry::Vacant(none) => {
-                none.insert(Aggregate::new(value));
-            }
-        };
+            None => self.table.insert(key, Aggregate::new(value)),
+        }
     }
 
     #[inline]
     fn insert_aggregate(&mut self, key: &'a [u8], value: Aggregate) {
-        match self.table.entry(key) {
-            Entry::Occupied(mut some) => {
-                some.get_mut().extend_one(value);
+        match self.table.get_mut(key) {
+            Some(agg) => {
+                agg.extend_one(value);
             }
-            Entry::Vacant(none) => {
-                none.insert(value);
-            }
-        };
+            None => self.table.insert(key, value),
+        }
     }
 
     pub fn compute(&mut self, slice: &'a [u8]) {
@@ -159,8 +154,8 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations =
-            BTreeMap::from_iter(self.table.into_iter().map(|(station, aggregate)| {
+        let mut stations = BTreeMap::from_iter(self.table.into_iter().flatten().map(
+            |(station, aggregate)| {
                 let station = unsafe { str::from_utf8_unchecked(station) };
                 let min = aggregate.min as f64 / 10.0;
                 let avg = (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count)
@@ -169,9 +164,10 @@ impl<'a> Metrics<'a> {
                 let max = aggregate.max as f64 / 10.0;
 
                 (station, (min, avg, max))
-            }))
-            .into_iter()
-            .peekable();
+            },
+        ))
+        .into_iter()
+        .peekable();
 
         write!(&mut writer, "{{")?;
 
@@ -199,7 +195,7 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
     }
 
     fn extend_one(&mut self, item: Metrics<'a>) {
-        for (station, aggregate) in item.table {
+        for (station, aggregate) in item.table.into_iter().flatten() {
             self.insert_aggregate(station, aggregate);
         }
     }

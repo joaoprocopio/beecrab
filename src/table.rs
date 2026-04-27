@@ -52,6 +52,15 @@ where
     }
 }
 
+impl<K, V, H, const S: usize> IntoIterator for Table<K, V, H, S> {
+    type Item = Option<(K, V)>;
+    type IntoIter = std::array::IntoIter<Option<(K, V)>, S>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.table.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
