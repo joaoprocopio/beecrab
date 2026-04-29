@@ -35,7 +35,7 @@ where
 {
     pub fn with_hasher(hasher: H) -> Self {
         let mut table = Vec::with_capacity(S);
-        table.resize_with(S, || const { None });
+        table.resize_with(S, || None);
 
         Self {
             hash_builder: hasher,
@@ -46,10 +46,9 @@ where
     pub fn get(&self, key: K) -> Option<&V> {
         let hash = make_hash(&self.hash_builder, &key);
         let index = make_index(hash as usize);
-        let elem = self.table[index].as_ref();
 
         loop {
-            match elem {
+            match self.table[index].as_ref() {
                 Some(inner_elem) if inner_elem.0 == key => return Some(&inner_elem.1),
                 _ => return None,
             }
@@ -58,13 +57,15 @@ where
 
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> {
         let hash = make_hash(&self.hash_builder, &key);
-        let index = make_index(hash as usize);
-        let elem = self.table[index].as_mut();
+        let mut index = make_index(hash as usize);
 
         loop {
-            match elem {
-                Some(inner_elem) if inner_elem.0 == key => return Some(&mut inner_elem.1),
-                _ => return None,
+            match self.table[index].as_ref() {
+                Some(inner_elem) if inner_elem.0 == key => {
+                    return self.table[index].as_mut().map(|kv| &mut kv.1);
+                }
+                Some(_) => index = make_next_probe(index),
+                None => return None,
             }
         }
     }
@@ -72,17 +73,16 @@ where
     pub fn insert(&mut self, key: K, value: V) {
         let hash = make_hash(&self.hash_builder, &key);
         let mut index = make_index(hash as usize);
-        let elem = self.table[index].as_ref();
 
         loop {
-            match elem {
+            match self.table[index].as_ref() {
                 Some(elem_inner) if elem_inner.0 != key => {
                     index = make_next_probe(index);
                 }
                 _ => {
                     // In this branch `elem_inner.0 == key` or `None`.
                     self.table[index] = Some((key, value));
-                    break;
+                    return;
                 }
             }
         }
@@ -102,18 +102,7 @@ impl<K, V, H> IntoIterator for Table<K, V, H> {
 mod tests {
     use super::*;
     use crate::metrics::Aggregate;
-    use std::hash::{BuildHasherDefault, Hasher, RandomState};
-
-    #[derive(Default)]
-    struct ConstantHasher;
-
-    impl Hasher for ConstantHasher {
-        fn finish(&self) -> u64 {
-            0
-        }
-
-        fn write(&mut self, _bytes: &[u8]) {}
-    }
+    use std::hash::RandomState;
 
     #[test]
     fn insert() {
@@ -126,14 +115,16 @@ mod tests {
 
     #[test]
     fn insert_with_collisions() {
-        let mut table = Table::<&[u8], Aggregate, BuildHasherDefault<ConstantHasher>>::with_hasher(
-            BuildHasherDefault::default(),
-        );
+        let mut table = Table::<&[u8], Aggregate, RandomState>::with_hasher(RandomState::default());
 
         table.insert(b"jac", Aggregate::new(1));
         table.insert(b"pedro", Aggregate::new(2));
 
         assert_eq!(table.get(b"jac"), Some(&Aggregate::new(1)));
         assert_eq!(table.get(b"pedro"), Some(&Aggregate::new(2)));
+
+        table.insert(b"jac", Aggregate::new(16));
+
+        assert_eq!(table.get(b"jac"), Some(&Aggregate::new(16)));
     }
 }
