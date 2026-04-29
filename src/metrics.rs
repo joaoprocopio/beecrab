@@ -70,7 +70,7 @@ impl Extend<Aggregate> for Aggregate {
 }
 
 pub struct Metrics {
-    table: HashMap<Vec<u8>, Aggregate, GxBuildHasher>,
+    table: HashMap<String, Aggregate, GxBuildHasher>,
 }
 
 impl Metrics {
@@ -104,7 +104,11 @@ impl Metrics {
                         .take()
                         .expect("newline must be before semicolon");
 
-                    let station = slice[line_start_cursor..semicolon_cursor].to_vec();
+                    let station = unsafe {
+                        String::from_utf8_unchecked(
+                            slice[line_start_cursor..semicolon_cursor].to_vec(),
+                        )
+                    };
                     let temperature =
                         parse_temperature(&slice[semicolon_cursor + 1..absolute_index]);
 
@@ -128,7 +132,11 @@ impl Metrics {
                         .take()
                         .expect("newline must be before semicolon");
 
-                    let station = slice[line_start_cursor..semicolon_cursor].to_vec();
+                    let station = unsafe {
+                        String::from_utf8_unchecked(
+                            slice[line_start_cursor..semicolon_cursor].to_vec(),
+                        )
+                    };
                     let temperature = parse_temperature(&slice[semicolon_cursor + 1..cursor]);
 
                     self.upsert(station, temperature);
@@ -146,7 +154,6 @@ impl Metrics {
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
         let mut stations =
             BTreeMap::from_iter(self.table.into_iter().map(|(station, aggregate)| {
-                let station = unsafe { String::from_utf8_unchecked(station) };
                 let min = aggregate.min as f64 / 10.0;
                 let avg = (aggregate.sum as f64 / aggregate.count as f64).round() / 10.0;
                 let max = aggregate.max as f64 / 10.0;
@@ -178,8 +185,8 @@ trait Upsert<K, T> {
     fn upsert(&mut self, key: K, value: T);
 }
 
-impl Upsert<Vec<u8>, Temperature> for Metrics {
-    fn upsert(&mut self, key: Vec<u8>, value: Temperature) {
+impl Upsert<String, Temperature> for Metrics {
+    fn upsert(&mut self, key: String, value: Temperature) {
         match self.table.entry(key) {
             Entry::Occupied(mut some) => {
                 some.get_mut().update(value);
@@ -191,8 +198,8 @@ impl Upsert<Vec<u8>, Temperature> for Metrics {
     }
 }
 
-impl Upsert<Vec<u8>, Aggregate> for Metrics {
-    fn upsert(&mut self, key: Vec<u8>, value: Aggregate) {
+impl Upsert<String, Aggregate> for Metrics {
+    fn upsert(&mut self, key: String, value: Aggregate) {
         match self.table.entry(key) {
             Entry::Occupied(mut some) => {
                 some.get_mut().extend_one(value);
