@@ -3,6 +3,7 @@ use std::io;
 use std::ptr;
 use std::slice;
 
+#[derive(Debug)]
 pub struct Mmap {
     ptr: *mut libc::c_void,
     len: libc::size_t,

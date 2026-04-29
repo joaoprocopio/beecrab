@@ -18,7 +18,7 @@ pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Aggregate {
     pub min: Temperature,
     pub max: Temperature,
@@ -53,14 +53,14 @@ impl Extend<Aggregate> for Aggregate {
 
     fn extend_one(&mut self, item: Aggregate) {
         self.max = self.max.max(item.max);
-        self.min = -(-self.min).min(-item.min);
+        self.min = -(-self.min).max(-item.min);
         self.sum += item.sum;
         self.count += item.count;
     }
 }
 
 pub struct Metrics<'a> {
-    table: Table<&'a [u8], Aggregate, RandomState, 10_000>,
+    table: Table<&'a [u8], Aggregate, RandomState>,
 }
 
 impl<'a> Metrics<'a> {
@@ -154,18 +154,16 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations = BTreeMap::from_iter(self.table.into_iter().flatten().map(
-            |(station, aggregate)| {
-                let station = unsafe { str::from_utf8_unchecked(station) };
-                let min = aggregate.min as f64 / 10.0;
-                let avg = (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count)
-                    as f64
-                    / 10.0;
-                let max = aggregate.max as f64 / 10.0;
+        let mut stations = BTreeMap::from_iter(self.table.into_iter().filter_map(|entry| {
+            let (station, aggregate) = entry?;
+            let station = unsafe { str::from_utf8_unchecked(station) };
+            let min = aggregate.min as f64 / 10.0;
+            let avg =
+                (2 * aggregate.sum + aggregate.count).div_euclid(2 * aggregate.count) as f64 / 10.0;
+            let max = aggregate.max as f64 / 10.0;
 
-                (station, (min, avg, max))
-            },
-        ))
+            Some((station, (min, avg, max)))
+        }))
         .into_iter()
         .peekable();
 
@@ -195,8 +193,13 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
     }
 
     fn extend_one(&mut self, item: Metrics<'a>) {
-        for (station, aggregate) in item.table.into_iter().flatten() {
-            self.insert_aggregate(station, aggregate);
+        for elem in item.table.into_iter() {
+            match elem {
+                Some((station, aggregate)) => {
+                    self.insert_aggregate(station, aggregate);
+                }
+                None => (),
+            };
         }
     }
 }
