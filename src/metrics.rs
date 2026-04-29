@@ -170,20 +170,6 @@ trait Insert<K, T> {
     fn insert(&mut self, key: K, value: T);
 }
 
-impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
-    fn extend<T: IntoIterator<Item = Metrics<'a>>>(&mut self, iter: T) {
-        for item in iter {
-            self.extend_one(item);
-        }
-    }
-
-    fn extend_one(&mut self, item: Metrics<'a>) {
-        for (station, aggregate) in item.table.into_iter() {
-            self.insert(station, aggregate);
-        }
-    }
-}
-
 impl<'a> Insert<&'a [u8], Temperature> for Metrics<'a> {
     #[inline]
     fn insert(&mut self, key: &'a [u8], value: Temperature) {
@@ -208,6 +194,20 @@ impl<'a> Insert<&'a [u8], Aggregate> for Metrics<'a> {
             Entry::Vacant(none) => {
                 none.insert(value);
             }
+        }
+    }
+}
+
+impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
+    fn extend<T: IntoIterator<Item = Metrics<'a>>>(&mut self, iter: T) {
+        for item in iter {
+            self.extend_one(item);
+        }
+    }
+
+    fn extend_one(&mut self, item: Metrics<'a>) {
+        for (station, aggregate) in item.table.into_iter() {
+            self.insert(station, aggregate);
         }
     }
 }
