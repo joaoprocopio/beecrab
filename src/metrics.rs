@@ -80,7 +80,7 @@ impl Metrics {
         }
     }
 
-    pub fn compute<'a>(&mut self, slice: &'a [u8]) {
+    pub fn compute(&mut self, slice: &[u8]) {
         let mut cursor = 0;
         let mut line_start_cursor = 0;
         let mut maybe_semicolon_cursor = None;
