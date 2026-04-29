@@ -1,6 +1,5 @@
 use gxhash::GxBuildHasher;
-use std::collections::btree_map::BTreeMap;
-use std::collections::hash_map::{Entry, HashMap};
+use hashbrown::hash_map::{Entry, HashMap};
 use std::hint;
 use std::io;
 use std::io::Write;
@@ -152,20 +151,19 @@ impl Metrics {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations =
-            BTreeMap::from_iter(self.table.into_iter().map(|(station, aggregate)| {
-                let min = aggregate.min as f64 / 10.0;
-                let avg = (aggregate.sum as f64 / aggregate.count as f64).round() / 10.0;
-                let max = aggregate.max as f64 / 10.0;
-
-                (station, (min, avg, max))
-            }))
-            .into_iter()
-            .peekable();
+        let mut stations: Vec<_> = self.table.keys().collect();
+        stations.sort_unstable();
+        let mut stations = stations.into_iter().peekable();
 
         write!(&mut writer, "{{")?;
 
-        while let Some((station, (min, avg, max))) = stations.next() {
+        while let Some(station) = stations.next() {
+            let aggregate = &self.table[station];
+
+            let min = aggregate.min as f64 / 10.0;
+            let avg = (aggregate.sum as f64 / aggregate.count as f64).round() / 10.0;
+            let max = aggregate.max as f64 / 10.0;
+
             write!(&mut writer, "{}={:.1}/{:.1}/{:.1}", station, min, avg, max)?;
 
             if stations.peek().is_some() {
