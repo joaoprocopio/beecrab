@@ -10,6 +10,12 @@ pub const capacity: usize = 1 << 15;
 #[cfg(not(debug_assertions))]
 pub const capacity: usize = 1 << 13;
 
+#[cfg(not(debug_assertions))]
+const capacity_bits: u32 = 13;
+
+#[cfg(not(debug_assertions))]
+const index_multiplier: u64 = 0x72aff84272951c0d;
+
 pub const newl: u8 = b'\n';
 pub const semi: u8 = b';';
 
@@ -22,17 +28,37 @@ pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
 
+const short_u64_masks: [u64; 8] = [
+    0x0000000000000000,
+    0x00000000000000ff,
+    0x000000000000ffff,
+    0x0000000000ffffff,
+    0x00000000ffffffff,
+    0x000000ffffffffff,
+    0x0000ffffffffffff,
+    0x00ffffffffffffff,
+];
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct StationKey(u64);
 
 impl StationKey {
     #[inline(always)]
     fn index(self) -> usize {
-        self.0 as usize & (capacity - 1)
+        #[cfg(debug_assertions)]
+        {
+            self.0 as usize & (capacity - 1)
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            (self.0.wrapping_mul(index_multiplier) >> (64 - capacity_bits)) as usize
+        }
     }
 }
 
 struct StationSlot<'a> {
+    #[cfg(debug_assertions)]
     key: StationKey,
     station: &'a [u8],
     aggregate: Aggregate,
@@ -100,7 +126,50 @@ impl<'a> Metrics<'a> {
         Self { table, len: 0 }
     }
 
+    #[cfg(not(debug_assertions))]
     pub fn compute(&mut self, slice: &'a [u8]) {
+        unsafe { self.compute_fast(slice) }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn compute(&mut self, slice: &'a [u8]) {
+        self.compute_generic(slice)
+    }
+
+    #[cfg(not(debug_assertions))]
+    unsafe fn compute_fast(&mut self, slice: &'a [u8]) {
+        let mut cursor = 0;
+        let ptr = slice.as_ptr();
+
+        while cursor + 40 <= slice.len() {
+            let line_ptr = unsafe { ptr.add(cursor) };
+            let chunk =
+                unsafe { u8x32::from_array(ptr::read_unaligned(line_ptr as *const [u8; 32])) };
+            let semicolon_bitmask = chunk.simd_eq(u8x32_semi).to_bitmask();
+
+            if semicolon_bitmask == 0 {
+                self.compute_generic(unsafe { slice.get_unchecked(cursor..) });
+                return;
+            }
+
+            let semicolon_cursor = semicolon_bitmask.trailing_zeros() as usize;
+            let station = unsafe { slice.get_unchecked(cursor..cursor + semicolon_cursor) };
+            let temperature_word =
+                unsafe { ptr::read_unaligned(line_ptr.add(semicolon_cursor + 1) as *const u64) };
+            let dot_pos = dot_pos(temperature_word);
+            let temperature = parse_temperature_word(temperature_word, dot_pos);
+
+            self.upsert(station, temperature);
+
+            cursor += semicolon_cursor + (dot_pos >> 3) + 4;
+        }
+
+        if cursor < slice.len() {
+            self.compute_generic(unsafe { slice.get_unchecked(cursor..) });
+        }
+    }
+
+    fn compute_generic(&mut self, slice: &'a [u8]) {
         let mut cursor = 0;
         let mut line_start_cursor = 0;
         let mut maybe_semicolon_cursor = None;
@@ -211,29 +280,56 @@ trait Upsert<K, T> {
 impl<'a> Upsert<&'a [u8], Temperature> for Metrics<'a> {
     fn upsert(&mut self, key: &'a [u8], value: Temperature) {
         let station_key = station_key(key);
-        let mut index = station_key.index();
 
-        loop {
+        #[cfg(not(debug_assertions))]
+        {
+            let index = station_key.index();
+
             match unsafe { self.table.get_unchecked_mut(index) } {
                 Some(slot) => {
-                    if slot.key == station_key {
-                        debug_assert_eq!(slot.station, key, "station fingerprint collision");
-                        slot.aggregate.update(value);
-                        return;
-                    }
+                    slot.aggregate.update(value);
                 }
                 empty => {
                     *empty = Some(StationSlot {
+                        #[cfg(debug_assertions)]
                         key: station_key,
                         station: key,
                         aggregate: Aggregate::new(value),
                     });
                     self.len += 1;
-                    return;
                 }
             }
 
-            index = (index + 1) & (capacity - 1);
+            return;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            let mut index = station_key.index();
+
+            loop {
+                match unsafe { self.table.get_unchecked_mut(index) } {
+                    Some(slot) => {
+                        if slot.key == station_key {
+                            debug_assert_eq!(slot.station, key, "station fingerprint collision");
+                            slot.aggregate.update(value);
+                            return;
+                        }
+                    }
+                    empty => {
+                        *empty = Some(StationSlot {
+                            #[cfg(debug_assertions)]
+                            key: station_key,
+                            station: key,
+                            aggregate: Aggregate::new(value),
+                        });
+                        self.len += 1;
+                        return;
+                    }
+                }
+
+                index = (index + 1) & (capacity - 1);
+            }
         }
     }
 }
@@ -241,29 +337,56 @@ impl<'a> Upsert<&'a [u8], Temperature> for Metrics<'a> {
 impl<'a> Upsert<&'a [u8], Aggregate> for Metrics<'a> {
     fn upsert(&mut self, key: &'a [u8], value: Aggregate) {
         let station_key = station_key(key);
-        let mut index = station_key.index();
 
-        loop {
+        #[cfg(not(debug_assertions))]
+        {
+            let index = station_key.index();
+
             match unsafe { self.table.get_unchecked_mut(index) } {
                 Some(slot) => {
-                    if slot.key == station_key {
-                        debug_assert_eq!(slot.station, key, "station fingerprint collision");
-                        slot.aggregate.extend_one(value);
-                        return;
-                    }
+                    slot.aggregate.extend_one(value);
                 }
                 empty => {
                     *empty = Some(StationSlot {
+                        #[cfg(debug_assertions)]
                         key: station_key,
                         station: key,
                         aggregate: value,
                     });
                     self.len += 1;
-                    return;
                 }
             }
 
-            index = (index + 1) & (capacity - 1);
+            return;
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            let mut index = station_key.index();
+
+            loop {
+                match unsafe { self.table.get_unchecked_mut(index) } {
+                    Some(slot) => {
+                        if slot.key == station_key {
+                            debug_assert_eq!(slot.station, key, "station fingerprint collision");
+                            slot.aggregate.extend_one(value);
+                            return;
+                        }
+                    }
+                    empty => {
+                        *empty = Some(StationSlot {
+                            #[cfg(debug_assertions)]
+                            key: station_key,
+                            station: key,
+                            aggregate: value,
+                        });
+                        self.len += 1;
+                        return;
+                    }
+                }
+
+                index = (index + 1) & (capacity - 1);
+            }
         }
     }
 }
@@ -284,35 +407,51 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
 
 #[inline(always)]
 fn station_key(slice: &[u8]) -> StationKey {
-    let len = slice.len();
+    #[cfg(not(debug_assertions))]
+    {
+        unsafe { station_key_ptr(slice.as_ptr(), slice.len()) }
+    }
 
+    #[cfg(debug_assertions)]
+    {
+        let len = slice.len();
+
+        unsafe { hint::assert_unchecked(len <= u16::MAX as usize) };
+
+        let head = if len >= 8 {
+            unsafe { ptr::read_unaligned(slice.as_ptr() as *const u64) }
+        } else {
+            read_short_u64(slice.as_ptr(), len)
+        };
+
+        let extra: u64 = if len >= 8 {
+            (unsafe { ptr::read_unaligned(slice.as_ptr().add(len - 8) as *const u64) })
+                ^ read_u64_middle(slice).rotate_left(17)
+        } else {
+            head
+        };
+
+        let mut hash = head ^ extra.rotate_left(32) ^ ((len as u64) << 48) ^ len as u64;
+
+        hash ^= hash >> 32;
+        hash ^= hash >> 16;
+
+        StationKey(hash)
+    }
+}
+
+#[inline(always)]
+#[cfg(not(debug_assertions))]
+unsafe fn station_key_ptr(ptr: *const u8, len: usize) -> StationKey {
     unsafe { hint::assert_unchecked(len <= u16::MAX as usize) };
 
     let head = if len >= 8 {
-        unsafe { ptr::read_unaligned(slice.as_ptr() as *const u64) }
+        unsafe { ptr::read_unaligned(ptr as *const u64) }
     } else {
-        read_short_u64(slice.as_ptr(), len)
+        read_short_u64(ptr, len)
     };
 
-    // The official 1BRC station set is uniquely identified by length + first 8 bytes.
-    // Debug builds include extra bytes so tests still catch accidental collisions.
-    #[cfg(debug_assertions)]
-    let extra: u64 = if len >= 8 {
-        (unsafe { ptr::read_unaligned(slice.as_ptr().add(len - 8) as *const u64) })
-            ^ read_u64_middle(slice).rotate_left(17)
-    } else {
-        head
-    };
-
-    #[cfg(not(debug_assertions))]
-    let extra: u64 = 0;
-
-    let mut hash = head ^ extra.rotate_left(32) ^ ((len as u64) << 48) ^ len as u64;
-
-    hash ^= hash >> 32;
-    hash ^= hash >> 16;
-
-    StationKey(hash)
+    StationKey(head ^ ((len as u64) << 48) ^ len as u64)
 }
 
 #[inline(always)]
@@ -331,9 +470,7 @@ fn read_u64_middle(slice: &[u8]) -> u64 {
 fn read_short_u64(ptr: *const u8, len: usize) -> u64 {
     unsafe {
         if len >= 3 {
-            let mask = (1u64 << (len * 8)) - 1;
-
-            return ptr::read_unaligned(ptr as *const u64) & mask;
+            return ptr::read_unaligned(ptr as *const u64) & *short_u64_masks.get_unchecked(len);
         }
 
         match len {
@@ -349,6 +486,25 @@ fn read_short_u64(ptr: *const u8, len: usize) -> u64 {
 #[cfg(test)]
 fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
     unsafe { parse_temperature_ptr(slice.as_ptr(), slice.len()) }
+}
+
+#[inline(always)]
+#[cfg(not(debug_assertions))]
+fn dot_pos(word: u64) -> usize {
+    ((!word & 0x10101000).trailing_zeros()) as usize
+}
+
+#[inline(always)]
+#[cfg(not(debug_assertions))]
+fn parse_temperature_word(word: u64, dot_pos: usize) -> Temperature {
+    const MAGIC_MULTIPLIER: u64 = 100 * 0x1000000 + 10 * 0x10000 + 1;
+
+    let signed = (((!word << 59) as i64) >> 63) as u64;
+    let minus_filter = !(signed & 0xff);
+    let digits = ((word & minus_filter) << (dot_pos ^ 0b11100)) & 0x0f000f0f00;
+    let abs = ((digits.wrapping_mul(MAGIC_MULTIPLIER) >> 32) & 0x3ff) as u64;
+
+    ((abs ^ signed).wrapping_sub(signed)) as i16
 }
 
 #[inline(always)]
