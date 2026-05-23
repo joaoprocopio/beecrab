@@ -1,21 +1,30 @@
 use beecrab::metrics::Metrics;
 use beecrab::metrics::newl;
 use beecrab::mmap::Mmap;
+use clap::Parser;
 use libc;
-use std::env::{args, current_dir};
+use std::env::current_dir;
 use std::fs::File;
 use std::io;
 use std::mem;
+use std::num::NonZero;
 use std::ops::Range;
 use std::os::fd::AsRawFd;
 use std::thread;
 
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(index = 1)]
+    filename: String,
+
+    #[arg(short, long, default_value_t = unsafe { NonZero::new_unchecked(1) })]
+    threads: NonZero<usize>,
+}
+
 fn main() {
-    let filename = args()
-        .nth(1)
-        .expect("measurements file path should be provider");
+    let args = Args::parse();
     let file = current_dir()
-        .and_then(|path| path.join(filename).canonicalize())
+        .and_then(|path| path.join(args.filename).canonicalize())
         .and_then(|path| File::open(path))
         .unwrap();
 
@@ -35,11 +44,7 @@ fn main() {
     let metrics = thread::scope(|scope| {
         let buffer = mmap.as_slice();
 
-        let threads = thread::available_parallelism()
-            .map(|threads| threads.get())
-            .unwrap_or(1);
-
-        let handles: Vec<_> = chunks(buffer, threads)
+        let handles: Vec<_> = chunks(buffer, args.threads.get())
             .into_iter()
             .map(|range| {
                 scope.spawn(move || {
