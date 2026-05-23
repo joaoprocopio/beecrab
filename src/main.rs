@@ -17,8 +17,8 @@ struct Args {
     #[arg(index = 1)]
     filename: String,
 
-    #[arg(short, long, default_value_t = unsafe { NonZero::new_unchecked(1) })]
-    threads: NonZero<usize>,
+    #[arg(short, long)]
+    threads: Option<NonZero<usize>>,
 }
 
 fn main() {
@@ -37,14 +37,21 @@ fn main() {
     )
     .unwrap();
 
-    mmap.advise(libc::MADV_RANDOM).unwrap();
+    mmap.advise(libc::MADV_SEQUENTIAL).unwrap();
     mmap.advise(libc::MADV_HUGEPAGE).unwrap();
     mmap.advise(libc::MADV_WILLNEED).unwrap();
 
     let metrics = thread::scope(|scope| {
         let buffer = mmap.as_slice();
+        let threads = args.threads.map(NonZero::get).unwrap_or_else(|| {
+            let available = thread::available_parallelism()
+                .map(NonZero::get)
+                .unwrap_or(1);
 
-        let handles: Vec<_> = chunks(buffer, args.threads.get())
+            (available * 4).div_ceil(3)
+        });
+
+        let handles: Vec<_> = chunks(buffer, threads)
             .into_iter()
             .map(|range| {
                 scope.spawn(move || {

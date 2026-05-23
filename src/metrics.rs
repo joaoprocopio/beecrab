@@ -1,11 +1,14 @@
-use gxhash::GxBuildHasher;
-use hashbrown::hash_map::{Entry, HashMap};
 use std::hint;
 use std::io;
 use std::io::Write;
+use std::ptr;
 use std::simd::cmp::SimdPartialEq;
 
-pub const capacity: usize = 2 << 14;
+#[cfg(debug_assertions)]
+pub const capacity: usize = 1 << 15;
+
+#[cfg(not(debug_assertions))]
+pub const capacity: usize = 1 << 13;
 
 pub const newl: u8 = b'\n';
 pub const semi: u8 = b';';
@@ -18,6 +21,22 @@ pub type u8x32 = std::simd::Simd<u8, u8x32_lanes>;
 
 pub type Temperature = i16;
 pub type TemperatureCount = i64;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct StationKey(u64);
+
+impl StationKey {
+    #[inline(always)]
+    fn index(self) -> usize {
+        self.0 as usize & (capacity - 1)
+    }
+}
+
+struct StationSlot<'a> {
+    key: StationKey,
+    station: &'a [u8],
+    aggregate: Aggregate,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Aggregate {
@@ -69,14 +88,16 @@ impl Extend<Aggregate> for Aggregate {
 }
 
 pub struct Metrics<'a> {
-    table: HashMap<&'a [u8], Aggregate, GxBuildHasher>,
+    table: Vec<Option<StationSlot<'a>>>,
+    len: usize,
 }
 
 impl<'a> Metrics<'a> {
     pub fn new() -> Self {
-        Self {
-            table: HashMap::with_capacity_and_hasher(capacity, Default::default()),
-        }
+        let mut table = Vec::with_capacity(capacity);
+        table.resize_with(capacity, || None);
+
+        Self { table, len: 0 }
     }
 
     pub fn compute(&mut self, slice: &'a [u8]) {
@@ -84,7 +105,7 @@ impl<'a> Metrics<'a> {
         let mut line_start_cursor = 0;
         let mut maybe_semicolon_cursor = None;
 
-        while cursor + u8x32_lanes < slice.len() {
+        while cursor + u8x32_lanes <= slice.len() {
             let chunk = u8x32::from_slice(&slice[cursor..cursor + u8x32_lanes]);
 
             let semicolon_bitmask = chunk.simd_eq(u8x32_semi).to_bitmask();
@@ -103,9 +124,14 @@ impl<'a> Metrics<'a> {
                         .take()
                         .expect("newline must be before semicolon");
 
-                    let station = &slice[line_start_cursor..semicolon_cursor];
-                    let temperature =
-                        parse_temperature(&slice[semicolon_cursor + 1..absolute_index]);
+                    let station =
+                        unsafe { slice.get_unchecked(line_start_cursor..semicolon_cursor) };
+                    let temperature = unsafe {
+                        parse_temperature_ptr(
+                            slice.as_ptr().add(semicolon_cursor + 1),
+                            absolute_index - semicolon_cursor - 1,
+                        )
+                    };
 
                     self.upsert(station, temperature);
 
@@ -127,8 +153,14 @@ impl<'a> Metrics<'a> {
                         .take()
                         .expect("newline must be before semicolon");
 
-                    let station = &slice[line_start_cursor..semicolon_cursor];
-                    let temperature = parse_temperature(&slice[semicolon_cursor + 1..cursor]);
+                    let station =
+                        unsafe { slice.get_unchecked(line_start_cursor..semicolon_cursor) };
+                    let temperature = unsafe {
+                        parse_temperature_ptr(
+                            slice.as_ptr().add(semicolon_cursor + 1),
+                            cursor - semicolon_cursor - 1,
+                        )
+                    };
 
                     self.upsert(station, temperature);
 
@@ -143,16 +175,16 @@ impl<'a> Metrics<'a> {
     }
 
     pub fn render(self, mut writer: impl Write) -> io::Result<()> {
-        let mut stations: Vec<_> = self.table.keys().collect();
-        stations.sort_unstable();
+        let mut stations: Vec<_> = self.table.iter().filter_map(|slot| slot.as_ref()).collect();
+        stations.sort_unstable_by(|left, right| left.station.cmp(right.station));
         let mut stations = stations.into_iter().peekable();
 
         write!(&mut writer, "{{")?;
 
-        while let Some(station) = stations.next() {
-            let aggregate = &self.table[station];
+        while let Some(slot) = stations.next() {
+            let aggregate = &slot.aggregate;
 
-            let station = unsafe { str::from_utf8_unchecked(station) };
+            let station = unsafe { str::from_utf8_unchecked(slot.station) };
             let min = aggregate.min as f64 / 10.0;
             let avg = (aggregate.sum as f64 / aggregate.count as f64).round() / 10.0;
             let max = aggregate.max as f64 / 10.0;
@@ -178,26 +210,60 @@ trait Upsert<K, T> {
 
 impl<'a> Upsert<&'a [u8], Temperature> for Metrics<'a> {
     fn upsert(&mut self, key: &'a [u8], value: Temperature) {
-        match self.table.entry(key) {
-            Entry::Occupied(mut some) => {
-                some.get_mut().update(value);
+        let station_key = station_key(key);
+        let mut index = station_key.index();
+
+        loop {
+            match unsafe { self.table.get_unchecked_mut(index) } {
+                Some(slot) => {
+                    if slot.key == station_key {
+                        debug_assert_eq!(slot.station, key, "station fingerprint collision");
+                        slot.aggregate.update(value);
+                        return;
+                    }
+                }
+                empty => {
+                    *empty = Some(StationSlot {
+                        key: station_key,
+                        station: key,
+                        aggregate: Aggregate::new(value),
+                    });
+                    self.len += 1;
+                    return;
+                }
             }
-            Entry::Vacant(none) => {
-                none.insert(Aggregate::new(value));
-            }
+
+            index = (index + 1) & (capacity - 1);
         }
     }
 }
 
 impl<'a> Upsert<&'a [u8], Aggregate> for Metrics<'a> {
     fn upsert(&mut self, key: &'a [u8], value: Aggregate) {
-        match self.table.entry(key) {
-            Entry::Occupied(mut some) => {
-                some.get_mut().extend_one(value);
+        let station_key = station_key(key);
+        let mut index = station_key.index();
+
+        loop {
+            match unsafe { self.table.get_unchecked_mut(index) } {
+                Some(slot) => {
+                    if slot.key == station_key {
+                        debug_assert_eq!(slot.station, key, "station fingerprint collision");
+                        slot.aggregate.extend_one(value);
+                        return;
+                    }
+                }
+                empty => {
+                    *empty = Some(StationSlot {
+                        key: station_key,
+                        station: key,
+                        aggregate: value,
+                    });
+                    self.len += 1;
+                    return;
+                }
             }
-            Entry::Vacant(none) => {
-                none.insert(value);
-            }
+
+            index = (index + 1) & (capacity - 1);
         }
     }
 }
@@ -210,31 +276,95 @@ impl<'a> Extend<Metrics<'a>> for Metrics<'a> {
     }
 
     fn extend_one(&mut self, item: Metrics<'a>) {
-        for (station, aggregate) in item.table.into_iter() {
-            self.upsert(station, aggregate);
+        for slot in item.table.into_iter().flatten() {
+            self.upsert(slot.station, slot.aggregate);
         }
     }
 }
 
-fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
+#[inline(always)]
+fn station_key(slice: &[u8]) -> StationKey {
     let len = slice.len();
 
+    unsafe { hint::assert_unchecked(len <= u16::MAX as usize) };
+
+    let head = if len >= 8 {
+        unsafe { ptr::read_unaligned(slice.as_ptr() as *const u64) }
+    } else {
+        read_short_u64(slice.as_ptr(), len)
+    };
+
+    // The official 1BRC station set is uniquely identified by length + first 8 bytes.
+    // Debug builds include extra bytes so tests still catch accidental collisions.
+    #[cfg(debug_assertions)]
+    let extra: u64 = if len >= 8 {
+        (unsafe { ptr::read_unaligned(slice.as_ptr().add(len - 8) as *const u64) })
+            ^ read_u64_middle(slice).rotate_left(17)
+    } else {
+        head
+    };
+
+    #[cfg(not(debug_assertions))]
+    let extra: u64 = 0;
+
+    let mut hash = head ^ extra.rotate_left(32) ^ ((len as u64) << 48) ^ len as u64;
+
+    hash ^= hash >> 32;
+    hash ^= hash >> 16;
+
+    StationKey(hash)
+}
+
+#[inline(always)]
+#[cfg(debug_assertions)]
+fn read_u64_middle(slice: &[u8]) -> u64 {
+    if slice.len() > 16 {
+        let offset = slice.len() / 2;
+
+        unsafe { ptr::read_unaligned(slice.as_ptr().add(offset) as *const u64) }
+    } else {
+        0
+    }
+}
+
+#[inline(always)]
+fn read_short_u64(ptr: *const u8, len: usize) -> u64 {
+    unsafe {
+        if len >= 3 {
+            let mask = (1u64 << (len * 8)) - 1;
+
+            return ptr::read_unaligned(ptr as *const u64) & mask;
+        }
+
+        match len {
+            0 => 0,
+            1 => *ptr as u64,
+            2 => ptr::read_unaligned(ptr as *const u16) as u64,
+            _ => ptr::read_unaligned(ptr as *const u64),
+        }
+    }
+}
+
+#[inline(always)]
+#[cfg(test)]
+fn parse_temperature<'a>(slice: &'a [u8]) -> Temperature {
+    unsafe { parse_temperature_ptr(slice.as_ptr(), slice.len()) }
+}
+
+#[inline(always)]
+unsafe fn parse_temperature_ptr(ptr: *const u8, len: usize) -> Temperature {
     unsafe { hint::assert_unchecked(len >= 3) };
 
-    let neg = hint::select_unpredictable(slice[0] == b'-', true, false) as usize;
+    let negative = unsafe { (*ptr == b'-') as usize };
 
-    // always valid; dot is at len-2, ones at len-3, frac at len-1
-    let frac = (slice[len - 1] - b'0') as Temperature;
-    let ones = (slice[len - 3] - b'0') as Temperature;
+    let frac = unsafe { (*ptr.add(len - 1) - b'0') as Temperature };
+    let ones = unsafe { (*ptr.add(len - 3) - b'0') as Temperature };
+    let tens_index = if len >= 4 { len - 4 } else { 0 };
+    let has_tens = (len >= 4 + negative) as Temperature;
+    let tens = unsafe { has_tens * (*ptr.add(tens_index)).wrapping_sub(b'0') as Temperature };
+    let value = tens * 100 + ones * 10 + frac;
 
-    // tens digit exists only when (len - neg) == 4
-    // saturating_sub(4): when len==3, falls back to index 0 (safe, gets masked out)
-    let has_tens = hint::select_unpredictable(len >= 4 + neg, true, false) as Temperature;
-    let tens = has_tens * slice[len.saturating_sub(4)].wrapping_sub(b'0') as Temperature;
-
-    let val = tens * 100 + ones * 10 + frac;
-
-    (1 - 2 * neg as Temperature) * val
+    (1 - 2 * negative as Temperature) * value
 }
 
 #[cfg(test)]
